@@ -1,4 +1,4 @@
-# GNUmakefile -- Modular top-level build file [v1.0.0]
+# GNUmakefile -- Modular top-level build file [v1.0.1]
 # Requires GNU Make (tested with 4.x).
 #
 # ============================================================================
@@ -140,8 +140,8 @@
 #   make clean        Remove all generated objects, dependency files,
 #                     archives, shared libraries, and binaries.
 #   make clean_<name> Remove generated files for a single target.
-#   make clean-all    Like clean, then also remove the (now empty)
-#                     build/output directories.
+#   make clean-all    Like clean, then also remove empty build/output
+#                     directories (deepest first).
 #
 # ============================================================================
 # CUSTOMIZATION
@@ -152,7 +152,7 @@
 #
 #   CC          C compiler                         (default: cc)
 #   AR          Archiver                           (default: ar)
-#   ARFLAGS     Archiver flags                     (default: rv)
+#   ARFLAGS     Archiver flags                     (default: rvD)
 #   MKDIR_P     Directory creation command          (default: mkdir -p)
 #   RMDIR       Directory removal command           (default: rmdir)
 #
@@ -166,17 +166,23 @@
 # Host Commands
 MKDIR_P ?= mkdir -p
 RMDIR   ?= rmdir
+ARFLAGS  = rvD
 
 # Command Macros
 link.c    = $(CC) -o $@ $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(LDLIBS)
-link.a    = $(if $?,,$(error Empty archive: no objects for $@))$(AR) $(ARFLAGS) $@ $?
+link.a    = $(RM) $@ && $(AR) $(ARFLAGS) $@ $^
 link.so   = $(CC) -shared -o $@ $(LDFLAGS) $^ $(LDLIBS)
 compile.c = $(CC) -c -o $@ $< -MMD $(CFLAGS) $(CPPFLAGS)
 
+# Utility Macros
+# explode_dirs: explode a path list into every intermediate directory.
+# Recursion depth is bounded by the deepest path (~5-10 levels).
+explode_dirs = $(sort $(filter-out .,$(if $1,$(call explode_dirs,$(filter-out $1,$(patsubst %/,%,$(dir $1))))) $(patsubst %/,%,$1)))
+
 # --- Directories ------------------------------------------------------------
 # Object files go under _build/<triplet>/ so cross-compiles don't clobber
-# each other. Binaries and libraries go under _out/<triple>/bin and _out/<triple>/lib
-# respectively.
+# each other.  Binaries and libraries go under _out/<triplet>/bin and
+# _out/<triplet>/lib respectively.
 
 TARGET_TRIPLET := $(shell $(CC) -dumpmachine 2>/dev/null)
 ifdef TARGET_TRIPLET
@@ -202,17 +208,20 @@ else
   SO_EXT := .so
 endif
 
-# Delete implicit rules
-% : %.o #delete
-% : %.c #delete
-%.o : %.c #delete
+# Delete built-in implicit rules -- they conflict with the out-of-tree
+# build layout (objects go to BUILDDIR, not alongside sources).
+% : %.o
+% : %.c
+%.o : %.c
 
-### EXECUTABLES ###
+### Module Loader ###
 
 # Recursive module.mk discovery.  Seed with top-level module files;
-# after each round of includes, scan every project's $(p)_SUBDIRS for
+# after each round of includes, scan every target's $(p)_SUBDIRS for
 # new module.mk files (resolved relative to $(p)_DIR).  Repeat until
 # no new files remain.
+.DEFAULT_GOAL := all
+
 _module_files   := src/module.mk
 _modules_loaded :=
 
@@ -237,14 +246,17 @@ get_lib      = $(BUILDDIR)/$1.a
 get_so       = $(LIBDIR)/lib$1$(SO_EXT)
 get_lib_file = $(if $(filter $1,$(LIBRARIES)),$(call get_lib,$1),$(call get_so,$1))
 
+# _all_dirs: every directory that contains a build artifact (used by clean-all)
+_all_dirs = $(sort $(dir \
+  $(foreach p,$(EXECUTABLES),$(BINDIR)/$p $(call get_objs,$p)) \
+  $(foreach l,$(LIBRARIES),$(call get_lib,$l) $(call get_objs,$l)) \
+  $(foreach s,$(SHARED_LIBS),$(call get_so,$s) $(call get_objs,$s))))
+
 .SECONDEXPANSION:
 all :: $$(EXECUTABLES)
 clean : $$(addprefix clean_,$$(EXECUTABLES) $$(LIBRARIES) $$(SHARED_LIBS))
 clean-all : clean
-	$(RMDIR) $(sort $(dir \
-	  $(foreach p,$(EXECUTABLES),$(BINDIR)/$p $(call get_objs,$p)) \
-	  $(foreach l,$(LIBRARIES),$(call get_lib,$l) $(call get_objs,$l)) \
-	  $(foreach s,$(SHARED_LIBS),$(call get_so,$s) $(call get_objs,$s)))) 2>/dev/null || true
+	-printf '%s\n' $(call explode_dirs,$(_all_dirs)) | sort -r | while read -r d; do $(RMDIR) "$$d" 2>/dev/null; done; true
 .PHONY : all clean clean-all clean_% $(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS)
 
 # Create directories
