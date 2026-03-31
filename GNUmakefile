@@ -1,15 +1,32 @@
-# GNUmakefile -- Modular top-level build file [v1.0.1]
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.1.0]
+# updated: 30 Mar 2026
 # Requires GNU Make (tested with 4.x).
 #
 # ============================================================================
 # OVERVIEW
 # ============================================================================
 #
-# This build system compiles C projects, static libraries, and shared
-# libraries from a tree of module.mk descriptor files.  Each module.mk
-# declares one or more build targets and their sources, flags, and
-# dependencies.  The top-level GNUmakefile provides the rules; the
+# This build system compiles multi-language projects, static libraries,
+# and shared libraries from a tree of module.mk descriptor files.  Each
+# module.mk declares one or more build targets and their sources, flags,
+# and dependencies.  The top-level GNUmakefile provides the rules; the
 # module.mk files provide the data.
+#
+# Supported source languages:
+#
+#   .c          C              (compiled with CC)
+#   .cc .cpp    C++            (compiled with CXX)
+#   .d          D              (compiled with GDC)
+#   .m          Objective-C    (compiled with CC)
+#   .mm         Objective-C++  (compiled with CXX)
+#   .f .f90     Fortran        (compiled with FC)
+#   .S          Assembly       (preprocessed, compiled with CC)
+#   .asm        Assembly       (compiled with NASM)
+#   .pas        Pascal         (compiled with FPC, requires cdecl exports)
+#   .mod        Modula-2       (compiled with GM2 / GCC Modula-2 frontend)
+#
+# All languages produce standard .o object files and can be freely mixed
+# within a single target.
 #
 # ============================================================================
 # DIRECTORY LAYOUT
@@ -26,7 +43,7 @@
 #
 # Build tree (output, per target triplet):
 #
-#   _build/<triplet>/        object files (.o) and dependency files (.d)
+#   _build/<triplet>/        object files (.o) and dependency files (.dep)
 #   _out/<triplet>/bin/      executable binaries
 #   _out/<triplet>/lib/      shared libraries (.so / .dylib / .dll)
 #
@@ -56,36 +73,81 @@
 # The _DIR line is boilerplate -- it captures the directory containing the
 # module.mk so that source paths resolve correctly regardless of where
 # the file is included from.  Source file names in _SRCS are relative to
-# _DIR (the build system prepends _DIR automatically).
+# _DIR (the build system prepends _DIR automatically).  Wildcards are
+# supported (e.g. *.c), expanded via $(wildcard).
+#
+# Sources may use any supported extension (.c, .cc, .cpp, .d, .m, .mm,
+# .f, .f90, .S, .asm, .pas, .mod) and can be freely mixed:
+#
+#   myapp_SRCS = main.c accel.S utils.cc
 #
 # Optional per-target variables:
 #
-#   <name>_CFLAGS    Extra compiler flags (e.g. -Wall -O2)
-#   <name>_CPPFLAGS  Preprocessor flags (e.g. -I paths, -D defines)
-#   <name>_LDFLAGS   Linker flags        (projects only)
-#   <name>_LDLIBS    Link libraries       (projects only, e.g. -lm)
+#   <name>_CFLAGS    C / Objective-C compiler flags (e.g. -Wall -O2)
+#   <name>_CXXFLAGS  C++ / Objective-C++ compiler flags
+#   <name>_CPPFLAGS  Preprocessor flags     (e.g. -I paths, -D defines)
+#   <name>_DFLAGS    D compiler flags
+#   <name>_FFLAGS    Fortran compiler flags
+#   <name>_ASFLAGS   Assembler flags        (.S files)
+#   <name>_NASMFLAGS NASM flags             (.asm files)
+#   <name>_FPCFLAGS  Free Pascal flags      (.pas files)
+#   <name>_GM2FLAGS  GCC Modula-2 flags     (.mod files)
+#   <name>_EXTRA_OBJS  Additional pre-built .o files to link (not compiled
+#                     or cleaned by this build system).
+#   <name>_LDFLAGS   Linker flags           (executables and shared libs)
+#   <name>_LDLIBS    Link libraries          (executables and shared libs)
+#   <name>_EXEC      Set automatically for executables -- the full
+#                     output path (e.g. _out/<triplet>/bin/myapp).
 #   <name>_LIBS      Names of library targets this target depends on.
 #                     Works for both static and shared libraries --
 #                     the build system resolves each name to its .a or
-#                     .so output automatically.  (projects only)
-#   <name>_SUBDIRS   Subdirectories (relative to _DIR) whose module.mk
-#                     files should be included.  This drives the
-#                     recursive module discovery described below.
+#                     .so output automatically.  Dependencies are
+#                     resolved transitively -- if lib A depends on
+#                     lib B, an executable depending on A will also
+#                     link B and inherit its exported flags.
+#   <name>_EXPORTED_CPPFLAGS  Preprocessor flags exported to dependents
+#   <name>_EXPORTED_CFLAGS    C compiler flags exported to dependents
+#   <name>_EXPORTED_CXXFLAGS  C++ compiler flags exported to dependents
+#   <name>_EXPORTED_LDFLAGS   Linker flags exported to dependents
+#   <name>_EXPORTED_LDLIBS    Link libraries exported to dependents
+#   <name>_TESTCMD   Shell commands to test the target, written with
+#                     define/endef.  Each line runs as a separate
+#                     shell command; if any fails, make stops.
+#
+# Each module.mk may also set:
+#
+#   TEST_TARGETS     Targets with test commands.  Append a target
+#                     name to have 'make run-tests' execute its
+#                     _TESTCMD after building it.
+#   SUBDIRS          Subdirectories (relative to the module.mk) whose
+#                     own module.mk files should be included.  This
+#                     drives the recursive module discovery described
+#                     below.  SUBDIRS is per-file, not per-target.
+#
+# The following global variables are available to module.mk files:
+#
+#   TOP              Absolute path to the project root (with trailing
+#                     slash), for referencing files relative to the
+#                     top-level directory regardless of module depth.
+#
+# If any _SRCS in the target or its transitive _LIBS dependencies
+# contain C++ or Objective-C++ files (.cc/.cpp/.mm), CXX_MODE is set
+# and the linker automatically switches from $(CC) to $(CXX).
 #
 # Example -- an executable that depends on a static library:
 #
 #   # src/module.mk
+#   SUBDIRS     = lib
 #   EXECUTABLES += hello
 #   hello_DIR   := $(dir $(lastword $(MAKEFILE_LIST)))
 #   hello_SRCS  = hello.c
 #   hello_LIBS  = myutil
-#   hello_CPPFLAGS  = -I$(myutil_DIR)
-#   hello_SUBDIRS   = lib
 #
 #   # src/lib/module.mk
 #   LIBRARIES += myutil
 #   myutil_DIR  := $(dir $(lastword $(MAKEFILE_LIST)))
 #   myutil_SRCS  = myutil.c
+#   myutil_EXPORTED_CPPFLAGS = -I$(myutil_DIR)
 #
 # Example -- a shared library:
 #
@@ -94,35 +156,46 @@
 #   myplugin_SRCS  = plugin.c hooks.c
 #   myplugin_CFLAGS = -Wall
 #
-# Objects for shared libraries are compiled with -fPIC automatically.
+# Objects for shared libraries are compiled with -fPIC automatically
+# (or -Cg for Pascal).
+#
+# Example -- mixed C and C++:
+#
+#   EXECUTABLES += myapp
+#   myapp_DIR   := $(dir $(lastword $(MAKEFILE_LIST)))
+#   myapp_SRCS   = main.c engine.cpp
+#   myapp_CFLAGS = -O2
+#   myapp_CXXFLAGS = -O2 -std=c++17
 #
 # ============================================================================
 # RECURSIVE MODULE DISCOVERY
 # ============================================================================
 #
 # Module.mk files are discovered by a recursive loader seeded from
-# src/module.mk.  After each round of includes:
+# src/module.mk.  Each time a module.mk is included, the loader reads
+# its SUBDIRS variable and queues any new module.mk files found in
+# those subdirectories (resolved relative to the including file).
+# The process repeats until no new module.mk files are found.
 #
-#   1. Every target in EXECUTABLES, LIBRARIES, and SHARED_LIBS is scanned
-#      for a _SUBDIRS variable.
-#   2. For each subdirectory d listed in <name>_SUBDIRS, the file
-#      $(<name>_DIR)/d/module.mk is queued for inclusion (if not
-#      already loaded).
-#   3. If new files were queued, the loader runs another pass.
-#   4. The process repeats until no new module.mk files are found.
-#
-# This means the tree of module.mk files is driven entirely by _SUBDIRS
+# This means the tree of module.mk files is driven entirely by SUBDIRS
 # declarations -- there is no filesystem scanning or globbing.
 #
 # ============================================================================
 # DEPENDENCY TRACKING
 # ============================================================================
 #
-# The compile command emits GCC-style dependency files (.d) via -MMD.
-# These are included at the bottom of this makefile so that changes to
-# headers trigger recompilation of the affected objects.  On a clean
-# build the .d files do not yet exist; the -include directive silently
-# ignores the missing files.
+# The compile commands for C, C++, Objective-C, Objective-C++, D,
+# Fortran, preprocessed assembly (.S), and Modula-2 emit GCC-style
+# dependency files (.dep) via -MMD -MF.  These are included at the
+# bottom of this makefile so that changes to headers trigger
+# recompilation of the affected objects.  On a clean build the .dep
+# files do not yet exist; the -include directive silently ignores the
+# missing files.
+#
+# NASM assembly and Pascal do not generate dependency files.
+# Some compilers produce side-effect files (FPC emits .ppu unit
+# files, gm2 emits .d definition caches); these are cleaned up
+# automatically by 'make clean'.
 #
 # Library dependencies declared via _LIBS are expressed as makefile
 # prerequisites: the library archive or shared object is listed as a
@@ -135,13 +208,16 @@
 # MAKE TARGETS
 # ============================================================================
 #
-#   make              Build all projects (default).
+#   make              Build all executables (default).
 #   make <name>       Build a single project or library by target name.
 #   make clean        Remove all generated objects, dependency files,
 #                     archives, shared libraries, and binaries.
 #   make clean_<name> Remove generated files for a single target.
 #   make clean-all    Like clean, then also remove empty build/output
 #                     directories (deepest first).
+#   make run-tests    Build all test targets, then run their test
+#                     commands.  See _TESTCMD in MODULE.MK FILES.
+#   make run-test-<name>  Build and test a single target.
 #
 # ============================================================================
 # CUSTOMIZATION
@@ -150,29 +226,76 @@
 # The following variables can be overridden on the command line or in
 # the environment:
 #
+#   USE_CLANG   If set, use clang/clang++ instead of cc/c++.
 #   CC          C compiler                         (default: cc)
+#   CXX         C++ compiler                       (default: c++)
+#   FC          Fortran compiler                   (default: gfortran)
+#   GDC         D compiler                         (default: gdc)
+#   NASM        Netwide Assembler                  (default: nasm)
+#   FPC         Free Pascal compiler               (default: fpc)
+#   GM2         GCC Modula-2 frontend              (default: gm2)
 #   AR          Archiver                           (default: ar)
 #   ARFLAGS     Archiver flags                     (default: rvD)
 #   MKDIR_P     Directory creation command          (default: mkdir -p)
 #   RMDIR       Directory removal command           (default: rmdir)
 #
-# Per-target CFLAGS, CPPFLAGS, LDFLAGS, and LDLIBS are set via
-# target-specific variables and do not inherit the global values.
-# This is intentional -- it keeps each target's flags self-contained
-# and avoids surprising flag leakage between unrelated targets.
+# Per-target CFLAGS, CXXFLAGS, CPPFLAGS, LDFLAGS, LDLIBS, and other
+# language-specific flags are set via target-specific variables and do
+# not inherit the global values.  This is intentional -- it keeps each
+# target's flags self-contained and avoids surprising flag leakage
+# between unrelated targets.
 #
 # ============================================================================
 
 # Host Commands
+ifdef USE_CLANG
+  CC  := clang
+  CXX := clang++
+else
+  CC  ?= cc
+  CXX ?= c++
+endif
+
 MKDIR_P ?= mkdir -p
 RMDIR   ?= rmdir
 ARFLAGS  = rvD
+# Override Make's built-in FC=f77 default, but respect user/env overrides
+ifeq ($(origin FC),default)
+  FC := gfortran
+endif
+GDC     ?= gdc
+NASM    ?= nasm
+FPC     ?= fpc
+GM2     ?= gm2
+
+# Set .RECIPEPREFIX explicitly so $(.RECIPEPREFIX) can be referenced
+.RECIPEPREFIX :=	
+
+# A literal newline (used by subst in test_rules)
+define newline
+
+
+endef
+
+# Source extensions (drives compile rule generation)
+EXTENSIONS := c cc cpp d m mm f f90 S asm pas mod
 
 # Command Macros
-link.c    = $(CC) -o $@ $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(LDLIBS)
-link.a    = $(RM) $@ && $(AR) $(ARFLAGS) $@ $^
-link.so   = $(CC) -shared -o $@ $(LDFLAGS) $^ $(LDLIBS)
-compile.c = $(CC) -c -o $@ $< -MMD $(CFLAGS) $(CPPFLAGS)
+link.c      = $(if $(CXX_MODE),$(CXX),$(CC)) -o $@ $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(LDLIBS)
+link.a      = $(RM) $@ && $(AR) $(ARFLAGS) $@ $(filter %.o,$^)
+link.so     = $(if $(CXX_MODE),$(CXX),$(CC)) -shared -o $@ $(LDFLAGS) $^ $(LDLIBS)
+compile.c   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(CFLAGS) $(CPPFLAGS)
+compile.cc  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(CXXFLAGS) $(CPPFLAGS)
+compile.cpp = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(CXXFLAGS) $(CPPFLAGS)
+compile.d   = $(GDC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(DFLAGS)
+compile.m   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(CFLAGS) $(CPPFLAGS)
+compile.mm  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(CXXFLAGS) $(CPPFLAGS)
+compile.f   = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(FFLAGS)
+compile.f90 = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(FFLAGS)
+compile.S   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(ASFLAGS) $(CPPFLAGS)
+compile.asm = $(NASM) -f $(NASM_FMT) -o $@ $(NASMFLAGS) $<
+compile.pas = $(FPC) -Cn -FE$(@D) -FU$(@D) $(FPCFLAGS) $<
+compile.mod = $(GM2) -c -o $@ $< -fcpp -MMD -MF $(@:.o=.dep) $(GM2FLAGS)
 
 # Utility Macros
 # explode_dirs: explode a path list into every intermediate directory.
@@ -197,29 +320,55 @@ BINDIR = $(OUTDIR)/bin
 # for shared libraries
 LIBDIR = $(OUTDIR)/lib
 
-# Shared library extension (platform-dependent)
+# Platform-dependent output extensions
 ifneq ($(findstring darwin,$(TARGET_TRIPLET)),)
-  SO_EXT := .dylib
+  EXTENSION.exe :=
+  EXTENSION.dll := .dylib
 else ifneq ($(findstring mingw,$(TARGET_TRIPLET)),)
-  SO_EXT := .dll
+  EXTENSION.exe := .exe
+  EXTENSION.dll := .dll
 else ifneq ($(findstring cygwin,$(TARGET_TRIPLET)),)
-  SO_EXT := .dll
+  EXTENSION.exe := .exe
+  EXTENSION.dll := .dll
 else
-  SO_EXT := .so
+  EXTENSION.exe :=
+  EXTENSION.dll := .so
+endif
+EXTENSION.lib := .a
+
+# NASM object format (platform-dependent)
+ifneq ($(findstring darwin,$(TARGET_TRIPLET)),)
+  NASM_FMT := macho64
+else ifneq ($(findstring mingw,$(TARGET_TRIPLET)),)
+  NASM_FMT := win64
+else ifneq ($(findstring cygwin,$(TARGET_TRIPLET)),)
+  NASM_FMT := win64
+else
+  NASM_FMT := elf64
 endif
 
 # Delete built-in implicit rules -- they conflict with the out-of-tree
 # build layout (objects go to BUILDDIR, not alongside sources).
 % : %.o
 % : %.c
+% : %.cc
+% : %.cpp
+% : %.S
+% : %.f
+% : %.f90
 %.o : %.c
+%.o : %.cc
+%.o : %.cpp
+%.o : %.S
+%.o : %.f
+%.o : %.f90
 
 ### Module Loader ###
 
 # Recursive module.mk discovery.  Seed with top-level module files;
-# after each round of includes, scan every target's $(p)_SUBDIRS for
-# new module.mk files (resolved relative to $(p)_DIR).  Repeat until
-# no new files remain.
+# after each include, read SUBDIRS and queue any new module.mk files.
+# Repeat until no new files remain.
+TOP := $(CURDIR)/
 .DEFAULT_GOAL := all
 
 _module_files   := src/module.mk
@@ -228,11 +377,11 @@ _modules_loaded :=
 define _load_modules
 $(foreach f,$(filter-out $(_modules_loaded),$(_module_files)),\
   $(eval _modules_loaded += $f)\
-  $(eval include $f))
-$(foreach p,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),\
-  $(foreach d,$($p_SUBDIRS),\
-    $(if $(filter $($p_DIR)$d/module.mk,$(_modules_loaded)),,\
-      $(eval _module_files += $($p_DIR)$d/module.mk))))
+  $(eval SUBDIRS :=)\
+  $(eval include $f)\
+  $(foreach d,$(SUBDIRS),\
+    $(if $(filter $(dir $f)$d/module.mk,$(_modules_loaded) $(_module_files)),,\
+      $(eval _module_files += $(dir $f)$d/module.mk))))
 $(if $(filter-out $(_modules_loaded),$(_module_files)),\
   $(eval $(value _load_modules)))
 endef
@@ -241,14 +390,37 @@ $(eval $(value _load_modules))
 
 ### Rules ###
 
-get_objs     = $(patsubst %.c,$(BUILDDIR)/%.o,$(addprefix $($1_DIR),$($1_SRCS)))
-get_lib      = $(BUILDDIR)/$1.a
-get_so       = $(LIBDIR)/lib$1$(SO_EXT)
+# get_srcs: expand _SRCS (supports wildcards like *.c) relative to _DIR
+get_srcs     = $(wildcard $(addprefix $($1_DIR),$($1_SRCS)))
+# get_objs: map source files to object files (works for any extension)
+get_objs     = $(foreach X,$(EXTENSIONS),$(patsubst %.$X,$(BUILDDIR)/%.o,$(filter %.$X,$(call get_srcs,$1))))
+# Compiler side-effect files: FPC emits .ppu alongside .o, gm2 emits .d
+get_side_effects = $(patsubst %.pas,$(BUILDDIR)/%.ppu,$(filter %.pas,$(call get_srcs,$1))) \
+                   $(patsubst %.mod,$(BUILDDIR)/%.d,$(filter %.mod,$(call get_srcs,$1)))
+get_lib      = $(BUILDDIR)/$1$(EXTENSION.lib)
+get_so       = $(LIBDIR)/lib$1$(EXTENSION.dll)
 get_lib_file = $(if $(filter $1,$(LIBRARIES)),$(call get_lib,$1),$(call get_so,$1))
+
+# Recursive _LIBS resolver: transitive closure of library dependencies.
+# get_all_libs($1) returns all direct and indirect _LIBS for target $1.
+_resolve_libs = $(sort $1 $(foreach L,$1,$($L_LIBS)))
+_libs_depth :=
+_get_all_libs_fp = $(eval _libs_depth += x)$(if $(word 100,$(_libs_depth)),$(error circular _LIBS dependency detected: $1))$(if $(filter-out $1,$(call _resolve_libs,$1)),$(call _get_all_libs_fp,$(call _resolve_libs,$1)),$1)
+get_all_libs = $(eval _libs_depth :=)$(call _get_all_libs_fp,$($1_LIBS))
+
+# Collect exported flags from all transitive _LIBS dependencies.
+get_exported_cppflags = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CPPFLAGS))
+get_exported_cflags   = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CFLAGS))
+get_exported_cxxflags = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CXXFLAGS))
+get_exported_ldflags  = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_LDFLAGS))
+get_exported_ldlibs   = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_LDLIBS))
+
+# needs_cxx: true if target $1 or any transitive dep has C++/Obj-C++ sources
+needs_cxx = $(or $(filter %.cc %.cpp %.mm,$(call get_srcs,$1)),$(strip $(foreach L,$(call get_all_libs,$1),$(filter %.cc %.cpp %.mm,$(call get_srcs,$L)))))
 
 # _all_dirs: every directory that contains a build artifact (used by clean-all)
 _all_dirs = $(sort $(dir \
-  $(foreach p,$(EXECUTABLES),$(BINDIR)/$p $(call get_objs,$p)) \
+  $(foreach p,$(EXECUTABLES),$(BINDIR)/$p$(EXTENSION.exe) $(call get_objs,$p)) \
   $(foreach l,$(LIBRARIES),$(call get_lib,$l) $(call get_objs,$l)) \
   $(foreach s,$(SHARED_LIBS),$(call get_so,$s) $(call get_objs,$s))))
 
@@ -266,12 +438,19 @@ clean-all : clean
 # Per-library rules: compile objects and pack into a static archive.
 define library_rules
 $1 : $(call get_lib,$1)
-$(call get_lib,$1) : $$(call get_objs,$1) | $$(@D)/
+$(call get_lib,$1) : $$(call get_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$($1_LIBS),$(call get_lib_file,$d)) | $$(@D)/
 	$$(link.a)
-$(call get_objs,$1) : CFLAGS=$$($1_CFLAGS)
-$(call get_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS)
+$(call get_objs,$1) : CFLAGS=$$($1_CFLAGS) $(call get_exported_cflags,$1)
+$(call get_objs,$1) : CXXFLAGS=$$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
+$(call get_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
+$(call get_objs,$1) : DFLAGS=$$($1_DFLAGS)
+$(call get_objs,$1) : FFLAGS=$$($1_FFLAGS)
+$(call get_objs,$1) : ASFLAGS=$$($1_ASFLAGS)
+$(call get_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
+$(call get_objs,$1) : FPCFLAGS=$$($1_FPCFLAGS)
+$(call get_objs,$1) : GM2FLAGS=$$($1_GM2FLAGS)
 clean_$1 :
-	$$(RM) $$(call get_objs,$1) $$(patsubst %.o,%.d,$$(call get_objs,$1))
+	$$(RM) $$(call get_objs,$1) $$(patsubst %.o,%.dep,$$(call get_objs,$1)) $$(call get_side_effects,$1)
 	$$(RM) $(call get_lib,$1)
 endef
 $(foreach l,$(LIBRARIES),$(eval $(call library_rules,$l)))
@@ -279,39 +458,71 @@ $(foreach l,$(LIBRARIES),$(eval $(call library_rules,$l)))
 # Per-shared-library rules: compile with -fPIC, link with -shared.
 define shared_library_rules
 $1 : $(call get_so,$1)
-$(call get_so,$1) : $$(call get_objs,$1) | $$(@D)/
+$(call get_so,$1) : $$(call get_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$($1_LIBS),$(call get_lib_file,$d)) | $$(@D)/
 	$$(link.so)
-$(call get_objs,$1) : CFLAGS=-fPIC $$($1_CFLAGS)
-$(call get_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS)
+$(call get_so,$1) : CXX_MODE=$(if $(call needs_cxx,$1),1)
+$(call get_so,$1) : LDFLAGS=$$($1_LDFLAGS) $(call get_exported_ldflags,$1)
+$(call get_so,$1) : LDLIBS=$$($1_LDLIBS) $(call get_exported_ldlibs,$1)
+$(call get_objs,$1) : CFLAGS=-fPIC $$($1_CFLAGS) $(call get_exported_cflags,$1)
+$(call get_objs,$1) : CXXFLAGS=-fPIC $$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
+$(call get_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
+$(call get_objs,$1) : DFLAGS=-fPIC $$($1_DFLAGS)
+$(call get_objs,$1) : FFLAGS=-fPIC $$($1_FFLAGS)
+$(call get_objs,$1) : ASFLAGS=-fPIC $$($1_ASFLAGS)
+$(call get_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
+$(call get_objs,$1) : FPCFLAGS=-Cg $$($1_FPCFLAGS)
+$(call get_objs,$1) : GM2FLAGS=-fPIC $$($1_GM2FLAGS)
 clean_$1 :
-	$$(RM) $$(call get_objs,$1) $$(patsubst %.o,%.d,$$(call get_objs,$1))
+	$$(RM) $$(call get_objs,$1) $$(patsubst %.o,%.dep,$$(call get_objs,$1)) $$(call get_side_effects,$1)
 	$$(RM) $(call get_so,$1)
 endef
 $(foreach s,$(SHARED_LIBS),$(eval $(call shared_library_rules,$s)))
 
 # Per-project rules: compile objects and link with libraries from LIBS.
 # The compile rule is per-project so that CFLAGS/CPPFLAGS are set correctly
-# for each object — target-specific variables on the link target do not
+# for each object -- target-specific variables on the link target do not
 # reliably propagate to prerequisite pattern rules in GNU Make.
 define project_rules
-$1 : $(BINDIR)/$1
-$(BINDIR)/$1 : $$(call get_objs,$1) $(foreach d,$($1_LIBS),$(call get_lib_file,$d)) | $(BINDIR)/
+$1_EXEC := $(BINDIR)/$1$(EXTENSION.exe)
+$1 : $(BINDIR)/$1$(EXTENSION.exe)
+$(BINDIR)/$1$(EXTENSION.exe) : $$(call get_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$(call get_all_libs,$1),$(call get_lib_file,$d)) | $(BINDIR)/
 	$$(link.c)
-$(BINDIR)/$1 : LDFLAGS=$$($1_LDFLAGS)
-$(BINDIR)/$1 : LDLIBS=$$($1_LDLIBS)
-$(call get_objs,$1) : CFLAGS=$$($1_CFLAGS)
-$(call get_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS)
+$(BINDIR)/$1$(EXTENSION.exe) : CXX_MODE=$(if $(call needs_cxx,$1),1)
+$(BINDIR)/$1$(EXTENSION.exe) : LDFLAGS=$$($1_LDFLAGS) $(call get_exported_ldflags,$1)
+$(BINDIR)/$1$(EXTENSION.exe) : LDLIBS=$$($1_LDLIBS) $(call get_exported_ldlibs,$1)
+$(call get_objs,$1) : CFLAGS=$$($1_CFLAGS) $(call get_exported_cflags,$1)
+$(call get_objs,$1) : CXXFLAGS=$$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
+$(call get_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
+$(call get_objs,$1) : DFLAGS=$$($1_DFLAGS)
+$(call get_objs,$1) : FFLAGS=$$($1_FFLAGS)
+$(call get_objs,$1) : ASFLAGS=$$($1_ASFLAGS)
+$(call get_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
+$(call get_objs,$1) : FPCFLAGS=$$($1_FPCFLAGS)
+$(call get_objs,$1) : GM2FLAGS=$$($1_GM2FLAGS)
 clean_$1 :
-	$$(RM) $$(call get_objs,$1) $$(patsubst %.o,%.d,$$(call get_objs,$1))
-	$$(RM) $(BINDIR)/$1
+	$$(RM) $$(call get_objs,$1) $$(patsubst %.o,%.dep,$$(call get_objs,$1)) $$(call get_side_effects,$1)
+	$$(RM) $(BINDIR)/$1$(EXTENSION.exe)
 endef
 $(foreach p,$(EXECUTABLES),$(eval $(call project_rules,$p)))
 
-# Compile (fallback pattern rule — project_rules above sets flags via
-# target-specific variables on the individual .o files)
-$(BUILDDIR)/%.o : %.c | $$(@D)/ ; $(compile.c)
+# Per-target test rules: build the target, then run its _TESTCMD.
+# The subst inserts .RECIPEPREFIX after each newline so multi-line
+# TESTCMDs become separate recipe lines (each checked for errors by Make).
+define test_rules
+.PHONY : run-test-$1
+run-test-$1 : $1
+	$$(subst $$(newline),$$(newline)$$(.RECIPEPREFIX),$$($1_TESTCMD))
+endef
+$(foreach t,$(TEST_TARGETS),$(eval $(call test_rules,$t)))
+
+.PHONY : run-tests
+run-tests : $(addprefix run-test-,$(TEST_TARGETS))
+
+# Compile rules -- generated from EXTENSIONS list.  Per-target flags are
+# set via target-specific variables on the individual .o files above.
+$(foreach X,$(EXTENSIONS),$(eval $(BUILDDIR)/%.o : %.$X | $$$$(@D)/ ; $$(compile.$X)))
 
 # Pull in generated dependency files (silent on first build)
--include $(patsubst %.o,%.d,$(foreach p,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(call get_objs,$p)))
+-include $(patsubst %.o,%.dep,$(foreach p,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(call get_objs,$p)))
 
 ##### END #####

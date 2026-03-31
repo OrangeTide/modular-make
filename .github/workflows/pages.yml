@@ -1,0 +1,52 @@
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pandoc
+        run: sudo apt-get install -y pandoc
+
+      - name: Extract docs from GNUmakefile
+        env:
+          REPO_URL: https://github.com/${{ github.repository }}
+        run: |
+          mkdir _site
+          ./scripts/extract-docs.sh > _site/index.md
+          printf '\n---\n\n[Source Code](%s) | [Releases](%s/releases)\n' \
+            "$REPO_URL" "$REPO_URL" >> _site/index.md
+
+      - name: Convert Markdown to HTML
+        run: |
+          pandoc _site/index.md \
+            -f markdown -t html \
+            --standalone \
+            --metadata title="modular-make" \
+            --css style.css \
+            -o _site/index.html
+          rm _site/index.md
+          cp scripts/style.css _site/style.css
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/deploy-pages@v4
+        id: deployment

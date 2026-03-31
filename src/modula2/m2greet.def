@@ -1,0 +1,5 @@
+DEFINITION MODULE FOR "C" m2greet;
+
+PROCEDURE greet_m2;
+
+END m2greet.
