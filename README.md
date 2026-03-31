@@ -206,7 +206,7 @@ The triplet (e.g. `x86_64-linux-gnu`) comes from `$(CC) -dumpmachine`, so cross-
 
 ## Customization
 
-Override on the command line or in the environment:
+Override on the command line, in the environment, or in a `.env` file (copy `env.example` to `.env` for local settings):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -220,13 +220,24 @@ Override on the command line or in the environment:
 | `GM2` | `gm2` | GCC Modula-2 frontend |
 | `AR` | `ar` | Archiver |
 | `ARFLAGS` | `rvD` | Archiver flags |
+| `RELEASE` | (unset) | Enable release build flags (`-O2`, LTO, `-DNDEBUG`, section GC) |
+| `RELEASE_MARCH` | `native` | Target architecture for release builds (e.g. `x86-64-v2`) |
 | `MKDIR_P` | `mkdir -p` | Directory creation |
 | `RMDIR` | `rmdir` | Directory removal |
+
+Release flags are injected into all GCC-based compile and link commands. LTO uses `-flto=thin` with Clang and `-flto=auto` with GCC. Pascal (FPC) is not affected by release flags.
 
 Use Clang instead of GCC:
 
 ```sh
 make USE_CLANG=1
+```
+
+Release build:
+
+```sh
+make RELEASE=1
+make RELEASE=1 RELEASE_MARCH=x86-64-v3
 ```
 
 Cross-compile example:

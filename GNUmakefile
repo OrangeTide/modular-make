@@ -1,4 +1,4 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.1.0]
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.1.1]
 # updated: 30 Mar 2026
 # Requires GNU Make (tested with 4.x).
 #
@@ -167,6 +167,23 @@
 #   myapp_CFLAGS = -O2
 #   myapp_CXXFLAGS = -O2 -std=c++17
 #
+# Example -- test commands:
+#
+#   EXECUTABLES += myapp
+#   myapp_DIR   := $(dir $(lastword $(MAKEFILE_LIST)))
+#   myapp_SRCS   = main.c
+#   define myapp_TESTCMD
+#   $(myapp_EXEC) --selftest
+#   $(myapp_EXEC) < testdata/input.txt | diff - testdata/expected.txt
+#   endef
+#   TEST_TARGETS += myapp
+#
+# The _EXEC variable is set automatically for each executable (expands
+# to the full output path, e.g. _out/<triplet>/bin/myapp).  Use
+# define/endef for multi-line test commands -- each line becomes a
+# separate recipe line checked for errors by Make.  Run all tests
+# with 'make run-tests' or a single test with 'make run-test-<name>'.
+#
 # ============================================================================
 # RECURSIVE MODULE DISCOVERY
 # ============================================================================
@@ -223,8 +240,8 @@
 # CUSTOMIZATION
 # ============================================================================
 #
-# The following variables can be overridden on the command line or in
-# the environment:
+# The following variables can be overridden on the command line, in
+# the environment, or in a .env file (copy env.example to .env):
 #
 #   USE_CLANG   If set, use clang/clang++ instead of cc/c++.
 #   CC          C compiler                         (default: cc)
@@ -239,6 +256,18 @@
 #   MKDIR_P     Directory creation command          (default: mkdir -p)
 #   RMDIR       Directory removal command           (default: rmdir)
 #
+#   RELEASE     If set, enable release build flags (-O2, LTO,
+#               -ffunction-sections, -fdata-sections, -DNDEBUG).
+#   RELEASE_MARCH  Target architecture for release builds
+#               (default: native).  Examples: x86-64-v2, x86-64-v3.
+#               To list available options on x86-64, run:
+#               /lib64/ld-linux-x86-64.so.2 --help
+#
+# Release flags are injected into all GCC-based compile and link
+# commands (C, C++, D, Obj-C, Obj-C++, Fortran, Assembly, Modula-2).
+# LTO uses -flto=thin with Clang and -flto=auto with GCC.
+# Pascal (FPC) is not affected by release flags.
+#
 # Per-target CFLAGS, CXXFLAGS, CPPFLAGS, LDFLAGS, LDLIBS, and other
 # language-specific flags are set via target-specific variables and do
 # not inherit the global values.  This is intentional -- it keeps each
@@ -246,6 +275,12 @@
 # between unrelated targets.
 #
 # ============================================================================
+
+# --- Optional .env for local configuration ----------------------------------
+# Variables like USE_CLANG, RELEASE, RELEASE_MARCH, etc.  See env.example.
+-include .env
+
+# --- Flags ------------------------------------------------------------------
 
 # Host Commands
 ifdef USE_CLANG
@@ -268,6 +303,41 @@ NASM    ?= nasm
 FPC     ?= fpc
 GM2     ?= gm2
 
+# Release build flags.  Invoke with `make RELEASE=1` for optimized binaries.
+#
+# Override architecture: `make RELEASE=1 RELEASE_MARCH=x86-64-v3`
+#
+# The flags are injected into compile/link macros below so they apply
+# regardless of per-target CFLAGS/LDFLAGS settings.
+#
+# To detect what options are available to you on x86-64 for RELEASE_MARCH :
+#    /lib64/ld-linux-x86-64.so.2 --help
+#
+ifdef RELEASE
+  ifeq ($(RELEASE_MARCH),)
+    RELEASE_MARCH := native
+  endif
+
+  # --- LTO detection ----------------------------------------------------------
+  LTO_SUPPORTED := $(shell echo 'int main(){return 0;}' \
+	  | $(CC) -flto -x c - -o /dev/null 2>/dev/null && echo yes)
+  ifeq ($(LTO_SUPPORTED),yes)
+    ifdef USE_CLANG
+      _LTO := -flto=thin
+    else
+      _LTO := -flto=auto
+    endif
+  endif
+
+  RELEASE_CFLAGS  := -O2 $(_LTO) -march=$(RELEASE_MARCH) \
+    -ffunction-sections -fdata-sections -DNDEBUG
+  RELEASE_LDFLAGS := $(_LTO) -Wl,--gc-sections -Wl,-O1
+  $(info RELEASE build: -march=$(RELEASE_MARCH) $(_LTO))
+else
+  RELEASE_CFLAGS  :=
+  RELEASE_LDFLAGS :=
+endif
+
 # Set .RECIPEPREFIX explicitly so $(.RECIPEPREFIX) can be referenced
 .RECIPEPREFIX :=	
 
@@ -281,21 +351,21 @@ endef
 EXTENSIONS := c cc cpp d m mm f f90 S asm pas mod
 
 # Command Macros
-link.c      = $(if $(CXX_MODE),$(CXX),$(CC)) -o $@ $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(LDLIBS)
+link.c      = $(if $(CXX_MODE),$(CXX),$(CC)) -o $@ $(RELEASE_LDFLAGS) $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(LDLIBS)
 link.a      = $(RM) $@ && $(AR) $(ARFLAGS) $@ $(filter %.o,$^)
-link.so     = $(if $(CXX_MODE),$(CXX),$(CC)) -shared -o $@ $(LDFLAGS) $^ $(LDLIBS)
-compile.c   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(CFLAGS) $(CPPFLAGS)
-compile.cc  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(CXXFLAGS) $(CPPFLAGS)
-compile.cpp = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(CXXFLAGS) $(CPPFLAGS)
-compile.d   = $(GDC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(DFLAGS)
-compile.m   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(CFLAGS) $(CPPFLAGS)
-compile.mm  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(CXXFLAGS) $(CPPFLAGS)
-compile.f   = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(FFLAGS)
-compile.f90 = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(FFLAGS)
-compile.S   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(ASFLAGS) $(CPPFLAGS)
+link.so     = $(if $(CXX_MODE),$(CXX),$(CC)) -shared -o $@ $(RELEASE_LDFLAGS) $(LDFLAGS) $^ $(LDLIBS)
+compile.c   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(CFLAGS) $(CPPFLAGS)
+compile.cc  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.cpp = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.d   = $(GDC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(DFLAGS)
+compile.m   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(CFLAGS) $(CPPFLAGS)
+compile.mm  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.f   = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(FFLAGS)
+compile.f90 = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(FFLAGS)
+compile.S   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(ASFLAGS) $(CPPFLAGS)
 compile.asm = $(NASM) -f $(NASM_FMT) -o $@ $(NASMFLAGS) $<
 compile.pas = $(FPC) -Cn -FE$(@D) -FU$(@D) $(FPCFLAGS) $<
-compile.mod = $(GM2) -c -o $@ $< -fcpp -MMD -MF $(@:.o=.dep) $(GM2FLAGS)
+compile.mod = $(GM2) -c -o $@ $< -fcpp -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(GM2FLAGS)
 
 # Utility Macros
 # explode_dirs: explode a path list into every intermediate directory.
