@@ -220,17 +220,24 @@ Override on the command line, in the environment, or in a `.env` file (copy `env
 | `GM2` | `gm2` | GCC Modula-2 frontend |
 | `AR` | `ar` | Archiver |
 | `ARFLAGS` | `rvD` | Archiver flags |
+| `DEBUG` | (unset) | Enable debug build flags (`-Og -g -fno-omit-frame-pointer`) |
 | `RELEASE` | (unset) | Enable release build flags (`-O2`, LTO, `-DNDEBUG`, section GC) |
 | `RELEASE_MARCH` | `native` | Target architecture for release builds (e.g. `x86-64-v2`) |
 | `MKDIR_P` | `mkdir -p` | Directory creation |
 | `RMDIR` | `rmdir` | Directory removal |
 
-Release flags are injected into all GCC-based compile and link commands. LTO uses `-flto=thin` with Clang and `-flto=auto` with GCC. Pascal (FPC) is not affected by release flags.
+`DEBUG` and `RELEASE` are mutually exclusive. Build mode flags are injected into all GCC-based compile and link commands. LTO is auto-detected by probing the full toolchain (compile, archive, link). Uses `-flto=thin` with Clang and `-flto=auto` with GCC. Pascal (FPC) is not affected.
 
 Use Clang instead of GCC:
 
 ```sh
 make USE_CLANG=1
+```
+
+Debug build:
+
+```sh
+make DEBUG=1
 ```
 
 Release build:
@@ -277,6 +284,15 @@ Or install everything at once:
 
 ```sh
 sudo apt-get install build-essential g++ gdc gfortran gobjc gobjc++ fpc gm2 nasm
+```
+
+## Testing
+
+A self-contained test suite under `tests/` exercises build system features using only C and C++ (no exotic compilers needed):
+
+```sh
+tests/run-tests.sh              # test with default compiler
+tests/run-tests.sh USE_CLANG=1  # test with clang
 ```
 
 ## License

@@ -1,4 +1,4 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.1.1]
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.1.2]
 # updated: 30 Mar 2026
 # Requires GNU Make (tested with 4.x).
 #
@@ -256,6 +256,8 @@
 #   MKDIR_P     Directory creation command          (default: mkdir -p)
 #   RMDIR       Directory removal command           (default: rmdir)
 #
+#   DEBUG       If set, enable debug build flags (-Og -g
+#               -fno-omit-frame-pointer).
 #   RELEASE     If set, enable release build flags (-O2, LTO,
 #               -ffunction-sections, -fdata-sections, -DNDEBUG).
 #   RELEASE_MARCH  Target architecture for release builds
@@ -263,10 +265,12 @@
 #               To list available options on x86-64, run:
 #               /lib64/ld-linux-x86-64.so.2 --help
 #
-# Release flags are injected into all GCC-based compile and link
-# commands (C, C++, D, Obj-C, Obj-C++, Fortran, Assembly, Modula-2).
-# LTO uses -flto=thin with Clang and -flto=auto with GCC.
-# Pascal (FPC) is not affected by release flags.
+# DEBUG and RELEASE are mutually exclusive.  Build mode flags are
+# injected into all GCC-based compile and link commands (C, C++, D,
+# Obj-C, Obj-C++, Fortran, Assembly, Modula-2).  Pascal (FPC) is not
+# affected.  LTO is auto-detected: a probe compiles, archives, and
+# links a test program to verify the full toolchain supports it.
+# Uses -flto=thin with Clang and -flto=auto with GCC.
 #
 # Per-target CFLAGS, CXXFLAGS, CPPFLAGS, LDFLAGS, LDLIBS, and other
 # language-specific flags are set via target-specific variables and do
@@ -319,8 +323,13 @@ ifdef RELEASE
   endif
 
   # --- LTO detection ----------------------------------------------------------
-  LTO_SUPPORTED := $(shell echo 'int main(){return 0;}' \
-	  | $(CC) -flto -x c - -o /dev/null 2>/dev/null && echo yes)
+  # Probe compile + archive + link to catch ar/linker LTO incompatibilities.
+  LTO_SUPPORTED := $(shell _d=$$(mktemp -d) && \
+	  echo 'int lto_ok(void){return 0;}' | $(CC) -flto -c -x c - -o $$_d/t.o 2>/dev/null && \
+	  $(AR) rc $$_d/t.a $$_d/t.o 2>/dev/null && \
+	  echo 'int lto_ok(void); int main(void){return lto_ok();}' \
+	    | $(CC) -flto -x c - $$_d/t.a -o /dev/null 2>/dev/null && \
+	  echo yes; rm -rf $$_d)
   ifeq ($(LTO_SUPPORTED),yes)
     ifdef USE_CLANG
       _LTO := -flto=thin
@@ -329,13 +338,14 @@ ifdef RELEASE
     endif
   endif
 
-  RELEASE_CFLAGS  := -O2 $(_LTO) -march=$(RELEASE_MARCH) \
+  _BUILD_MODE_CFLAGS  := -O2 $(_LTO) -march=$(RELEASE_MARCH) \
     -ffunction-sections -fdata-sections -DNDEBUG
-  RELEASE_LDFLAGS := $(_LTO) -Wl,--gc-sections -Wl,-O1
+  _BUILD_MODE_LDFLAGS := $(_LTO) -Wl,--gc-sections -Wl,-O1
   $(info RELEASE build: -march=$(RELEASE_MARCH) $(_LTO))
-else
-  RELEASE_CFLAGS  :=
-  RELEASE_LDFLAGS :=
+else ifdef DEBUG
+  _BUILD_MODE_CFLAGS  := -Og -g -fno-omit-frame-pointer
+  _BUILD_MODE_LDFLAGS := -g
+  $(info DEBUG build)
 endif
 
 # Set .RECIPEPREFIX explicitly so $(.RECIPEPREFIX) can be referenced
@@ -351,21 +361,21 @@ endef
 EXTENSIONS := c cc cpp d m mm f f90 S asm pas mod
 
 # Command Macros
-link.c      = $(if $(CXX_MODE),$(CXX),$(CC)) -o $@ $(RELEASE_LDFLAGS) $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(LDLIBS)
+link.c      = $(if $(CXX_MODE),$(CXX),$(CC)) -o $@ $(_BUILD_MODE_LDFLAGS) $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(LDLIBS)
 link.a      = $(RM) $@ && $(AR) $(ARFLAGS) $@ $(filter %.o,$^)
-link.so     = $(if $(CXX_MODE),$(CXX),$(CC)) -shared -o $@ $(RELEASE_LDFLAGS) $(LDFLAGS) $^ $(LDLIBS)
-compile.c   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(CFLAGS) $(CPPFLAGS)
-compile.cc  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.cpp = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.d   = $(GDC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(DFLAGS)
-compile.m   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(CFLAGS) $(CPPFLAGS)
-compile.mm  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.f   = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(FFLAGS)
-compile.f90 = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(FFLAGS)
-compile.S   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(ASFLAGS) $(CPPFLAGS)
+link.so     = $(if $(CXX_MODE),$(CXX),$(CC)) -shared -o $@ $(_BUILD_MODE_LDFLAGS) $(LDFLAGS) $^ $(LDLIBS)
+compile.c   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(CFLAGS) $(CPPFLAGS)
+compile.cc  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.cpp = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.d   = $(GDC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(DFLAGS)
+compile.m   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(CFLAGS) $(CPPFLAGS)
+compile.mm  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.f   = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(FFLAGS)
+compile.f90 = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(FFLAGS)
+compile.S   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(ASFLAGS) $(CPPFLAGS)
 compile.asm = $(NASM) -f $(NASM_FMT) -o $@ $(NASMFLAGS) $<
 compile.pas = $(FPC) -Cn -FE$(@D) -FU$(@D) $(FPCFLAGS) $<
-compile.mod = $(GM2) -c -o $@ $< -fcpp -MMD -MF $(@:.o=.dep) $(RELEASE_CFLAGS) $(GM2FLAGS)
+compile.mod = $(GM2) -c -o $@ $< -fcpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(GM2FLAGS)
 
 # Utility Macros
 # explode_dirs: explode a path list into every intermediate directory.
@@ -471,12 +481,13 @@ get_lib      = $(BUILDDIR)/$1$(EXTENSION.lib)
 get_so       = $(LIBDIR)/lib$1$(EXTENSION.dll)
 get_lib_file = $(if $(filter $1,$(LIBRARIES)),$(call get_lib,$1),$(call get_so,$1))
 
-# Recursive _LIBS resolver: transitive closure of library dependencies.
-# get_all_libs($1) returns all direct and indirect _LIBS for target $1.
-_resolve_libs = $(sort $1 $(foreach L,$1,$($L_LIBS)))
-_libs_depth :=
-_get_all_libs_fp = $(eval _libs_depth += x)$(if $(word 100,$(_libs_depth)),$(error circular _LIBS dependency detected: $1))$(if $(filter-out $1,$(call _resolve_libs,$1)),$(call _get_all_libs_fp,$(call _resolve_libs,$1)),$1)
-get_all_libs = $(eval _libs_depth :=)$(call _get_all_libs_fp,$($1_LIBS))
+# Recursive _LIBS resolver: depth-first transitive closure.
+# get_all_libs($1) returns all direct and indirect _LIBS for target $1,
+# in topological order (dependents before dependencies) so that the
+# linker resolves symbols correctly with static archives.
+_expand_libs = $(eval _libs_depth += x)$(if $(word 100,$(_libs_depth)),$(error circular _LIBS dependency detected: $1))$(foreach L,$1,$L $(call _expand_libs,$($L_LIBS)))
+_uniq = $(if $1,$(firstword $1) $(call _uniq,$(filter-out $(firstword $1),$1)))
+get_all_libs = $(eval _libs_depth :=)$(call _uniq,$(call _expand_libs,$($1_LIBS)))
 
 # Collect exported flags from all transitive _LIBS dependencies.
 get_exported_cppflags = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CPPFLAGS))
