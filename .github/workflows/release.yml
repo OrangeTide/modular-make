@@ -24,7 +24,7 @@ jobs:
         run: zip modular-make-${{ steps.version.outputs.tag }}.zip GNUmakefile
 
       - name: Create Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           files: modular-make-${{ steps.version.outputs.tag }}.zip
           generate_release_notes: true
