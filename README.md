@@ -29,6 +29,8 @@ All languages produce standard `.o` files and can be freely mixed within a singl
 2. Create `src/module.mk` to declare your targets.
 3. Run `make`.
 
+If you prefer a top-level `module.mk` instead of `src/module.mk`, the build system will use it automatically. In that case you are responsible for listing subdirectories in `SUBDIRS` (e.g. `SUBDIRS = src`).
+
 ### Minimal Example
 
 ```
@@ -103,7 +105,7 @@ myapp_SRCS = main.c accel.S utils.cpp
 | Variable | Description |
 |----------|-------------|
 | `TEST_TARGETS` | Targets with `_TESTCMD` to run during `make run-tests` |
-| `SUBDIRS` | Subdirectories containing additional `module.mk` files (per-file, not per-target) |
+| `SUBDIRS` | Subdirectories containing additional `module.mk` files (per-file, not per-target). When using a top-level `module.mk`, add `src` here to load `src/module.mk`. |
 | `TOP` | Absolute path to the project root (with trailing slash), available to all `module.mk` files |
 
 ### Executable with a Static Library

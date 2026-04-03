@@ -34,6 +34,10 @@
 #
 # Source tree (input):
 #
+#   By default the build system loads src/module.mk as the root module
+#   file.  If a top-level module.mk exists instead, it is used and the
+#   user is responsible for adding src (or any other directory) to SUBDIRS.
+#
 #   src/
 #     module.mk              <-- declares your central project
 #     yourprog.c
@@ -451,7 +455,8 @@ endif
 TOP := $(CURDIR)/
 .DEFAULT_GOAL := all
 
-_module_files   := src/module.mk
+# look for module.mk at top-level, else default to src/module.mk
+_module_files   := $(if $(wildcard module.mk),module.mk,src/module.mk)
 _modules_loaded :=
 
 define _load_modules
