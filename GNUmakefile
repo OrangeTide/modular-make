@@ -490,9 +490,13 @@ get_lib_file = $(if $(filter $1,$(LIBRARIES)),$(call get_lib,$1),$(call get_so,$
 # get_all_libs($1) returns all direct and indirect _LIBS for target $1,
 # in topological order (dependents before dependencies) so that the
 # linker resolves symbols correctly with static archives.
-_expand_libs = $(eval _libs_depth += x)$(if $(word 100,$(_libs_depth)),$(error circular _LIBS dependency detected: $1))$(foreach L,$1,$L $(call _expand_libs,$($L_LIBS)))
-_uniq = $(if $1,$(firstword $1) $(call _uniq,$(filter-out $(firstword $1),$1)))
-get_all_libs = $(eval _libs_depth :=)$(call _uniq,$(call _expand_libs,$($1_LIBS)))
+_expand_libs = $(if $1,$(eval _libs_depth += x)$(if $(word 100,$(_libs_depth)),$(error circular _LIBS dependency detected: $1))$(foreach L,$1,$L $(call _expand_libs,$($L_LIBS))))
+# _uniq_last: keep last occurrence of each word (preserves topological order
+# so that dependencies appear after their dependents for static linking).
+_rev = $(if $1,$(call _rev,$(wordlist 2,$(words $1),$1)) $(firstword $1))
+_uniq_first = $(if $1,$(firstword $1) $(call _uniq_first,$(filter-out $(firstword $1),$1)))
+_uniq_last = $(call _rev,$(call _uniq_first,$(call _rev,$1)))
+get_all_libs = $(eval _libs_depth :=)$(call _uniq_last,$(call _expand_libs,$($1_LIBS)))
 
 # Collect exported flags from all transitive _LIBS dependencies.
 get_exported_cppflags = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CPPFLAGS))
