@@ -343,14 +343,28 @@ ifdef RELEASE
   endif
 
   _BUILD_MODE_CFLAGS  := -O2 $(_LTO) -march=$(RELEASE_MARCH) \
-    -ffunction-sections -fdata-sections -DNDEBUG
+    -ffunction-sections -fdata-sections
+  _BUILD_MODE_CPPFLAGS := -DNDEBUG
   _BUILD_MODE_LDFLAGS := $(_LTO) -Wl,--gc-sections -Wl,-O1
   $(info RELEASE build: -march=$(RELEASE_MARCH) $(_LTO))
 else ifdef DEBUG
   _BUILD_MODE_CFLAGS  := -Og -g -fno-omit-frame-pointer
+  _BUILD_MODE_CPPFLAGS :=
   _BUILD_MODE_LDFLAGS := -g
   $(info DEBUG build)
 endif
+
+# Project-wide CFLAGS / CXXFLAGS / CPPFLAGS / etc...
+# Override in a top-level module.mk, but don't set multiple times in your
+# project or you'll be at the mercy of the last module.mk to set it.
+# PROJECT_CFLAGS := -Wall -W -Werror
+# PROJECT_CXXFLAGS := -Wall -W -Werror
+# PROJECT_CPPFLAGS := -DYOUR_MACRO
+# PROJECT_LDFLAGS :=
+# PROJECT_LDLIBS :=
+# PROJECT_DFLAGS :=
+# PROJECT_FFLAGS :=
+# PROJECT_GM2FLAGS :=
 
 # Set .RECIPEPREFIX explicitly so $(.RECIPEPREFIX) can be referenced
 .RECIPEPREFIX :=	
@@ -365,21 +379,21 @@ endef
 EXTENSIONS := c cc cpp d m mm f f90 S asm pas mod
 
 # Command Macros
-link.c      = $(if $(CXX_MODE),$(CXX),$(CC)) -o $@ $(_BUILD_MODE_LDFLAGS) $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(LDLIBS)
+link.c      = $(if $(CXX_MODE),$(CXX),$(CC)) -o $@ $(_BUILD_MODE_LDFLAGS) $(PROJECT_LDFLAGS) $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(PROJECT_LDLIBS) $(LDLIBS)
 link.a      = $(RM) $@ && $(AR) $(ARFLAGS) $@ $(filter %.o,$^)
-link.so     = $(if $(CXX_MODE),$(CXX),$(CC)) -shared -o $@ $(_BUILD_MODE_LDFLAGS) $(LDFLAGS) $^ $(LDLIBS)
-compile.c   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(CFLAGS) $(CPPFLAGS)
-compile.cc  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.cpp = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.d   = $(GDC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(DFLAGS)
-compile.m   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(CFLAGS) $(CPPFLAGS)
-compile.mm  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.f   = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(FFLAGS)
-compile.f90 = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(FFLAGS)
-compile.S   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(ASFLAGS) $(CPPFLAGS)
+link.so     = $(if $(CXX_MODE),$(CXX),$(CC)) -shared -o $@ $(_BUILD_MODE_LDFLAGS) $(PROJECT_LDFLAGS) $(LDFLAGS) $^ $(PROJECT_LDLIBS) $(LDLIBS)
+compile.c   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(CPPFLAGS)
+compile.cc  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.cpp = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.d   = $(GDC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_DFLAGS) $(PROJECT_CPPFLAGS) $(DFLAGS)
+compile.m   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(CPPFLAGS)
+compile.mm  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.f   = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_FFLAGS) $(PROJECT_CPPFLAGS) $(FFLAGS)
+compile.f90 = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_FFLAGS) $(PROJECT_CPPFLAGS) $(FFLAGS)
+compile.S   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(ASFLAGS) $(CPPFLAGS)
 compile.asm = $(NASM) -f $(NASM_FMT) -o $@ $(NASMFLAGS) $<
 compile.pas = $(FPC) -Cn -FE$(@D) -FU$(@D) $(FPCFLAGS) $<
-compile.mod = $(GM2) -c -o $@ $< -fcpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(GM2FLAGS)
+compile.mod = $(GM2) -c -o $@ $< -fcpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_GM2FLAGS) $(PROJECT_CPPFLAGS) $(GM2FLAGS)
 
 # Utility Macros
 # explode_dirs: explode a path list into every intermediate directory.
