@@ -2,7 +2,7 @@
 # Download the latest GNUmakefile from modular-make.
 #
 # Usage:
-#   scripts/update-gnumakefile.sh            # latest from main branch
+#   scripts/update-gnumakefile.sh            # latest tagged release
 #   scripts/update-gnumakefile.sh v1.2.1     # specific tag or ref
 #
 # Environment variables:
@@ -12,9 +12,7 @@
 set -e
 
 GITHUB_REPO="${GITHUB_REPO:-OrangeTide/modular-make}"
-REF="${1:-main}"
 OUTPUT="${OUTPUT:-GNUmakefile}"
-URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${REF}/GNUmakefile"
 
 # Pick a download tool
 if command -v curl >/dev/null 2>&1; then
@@ -25,6 +23,20 @@ else
   echo "error: curl or wget required" >&2
   exit 1
 fi
+
+# Default to latest tag (avoids stale CDN cache on branch refs)
+if [ $# -eq 0 ]; then
+  REF=$(fetch "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
+    | sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p')
+  if [ -z "$REF" ]; then
+    echo "error: could not determine latest release tag" >&2
+    exit 1
+  fi
+else
+  REF="$1"
+fi
+
+URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${REF}/GNUmakefile"
 
 # Download to a temp file first so a failed download does not clobber
 # the existing GNUmakefile.
