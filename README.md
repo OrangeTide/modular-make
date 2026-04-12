@@ -168,6 +168,53 @@ procedure greet(msg: PChar); cdecl; export;
 
 Compile to `.o` with Free Pascal, then link alongside C objects. You may need to add FPC runtime libraries to `_LDLIBS`.
 
+### Platform-Specific Suffixes
+
+Most per-target variables accept `.<os>`, `.<arch>`, and `.<os>.<arch>` suffixes. After all `module.mk` files are loaded, suffixed values are appended to the base variable automatically. `<os>` follows the `uname -s` spelling (e.g. `Linux`, `Darwin`, `Windows_NT`) and `<arch>` follows `uname -m` (e.g. `x86_64`, `aarch64`, `riscv64`).
+
+When cross-compiling (e.g. `CC=aarch64-linux-gnu-gcc`), the target OS and architecture are derived from the compiler's triplet, so the correct suffixes are selected automatically.
+
+```makefile
+# library with arch-specific SIMD and a portable C fallback
+LIBRARIES    += minmax
+minmax_DIR   := $(dir $(lastword $(MAKEFILE_LIST)))
+minmax_SRCS           = minmax.c
+minmax_SRCS.x86_64    = arch/minmax_x86_64.S
+minmax_SRCS.aarch64   = arch/minmax_aarch64.S
+minmax_LDLIBS.Linux   = -lm -ldl
+minmax_CFLAGS.Linux.x86_64 = -msse4.2
+```
+
+The supported suffixed variables are: `_SRCS`, `_LIBS`, `_EXTRA_OBJS`, and all per-target compiler/linker flag variables (`_CFLAGS`, `_CXXFLAGS`, `_CPPFLAGS`, `_LDFLAGS`, `_LDLIBS`, `_ASFLAGS`, `_DFLAGS`, `_FFLAGS`, `_NASMFLAGS`, `_FPCFLAGS`, `_GM2FLAGS`, and the `_EXPORTED_*` variants).
+
+### Conditional Compiler Detection
+
+A `module.mk` can check whether its compiler is available and conditionally register its target. This is useful for optional dependencies or compilers that may not be installed (e.g. cross-compiling without Free Pascal):
+
+```makefile
+# library: "greet_pascal" -- only when fpc is available
+ifneq ($(shell command -v $(FPC) 2>/dev/null),)
+LIBRARIES += greet_pascal
+greet_pascal_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
+greet_pascal_SRCS = greetpascal.pas
+greet_pascal_EXPORTED_CPPFLAGS = -I$(greet_pascal_DIR) -DHAVE_PASCAL
+endif
+```
+
+Dependents can use `$(filter)` to conditionally link against the optional library:
+
+```makefile
+world_LIBS = greet_c $(filter greet_pascal,$(LIBRARIES)) greet_m2
+```
+
+And guard the corresponding C code with the exported define:
+
+```c
+#ifdef HAVE_PASCAL
+#include <greet_pascal.h>
+#endif
+```
+
 ### Test Commands
 
 Define test commands with `define`/`endef` and register the target:

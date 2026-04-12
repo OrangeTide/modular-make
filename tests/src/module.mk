@@ -1,5 +1,5 @@
 ROOT := $(dir $(lastword $(MAKEFILE_LIST)))
-SUBDIRS = libfoo libbar libbaz
+SUBDIRS = libfoo libbar libbaz libplat
 
 # app: C executable, depends on foo (transitive -> bar), and baz (C++ lib).
 # Tests: transitive _LIBS, EXPORTED_CPPFLAGS, CXX_MODE auto-detection.
@@ -25,3 +25,15 @@ $(cxxapp_EXEC)
 $(cxxapp_EXEC) | grep -q "foo_val=42"
 endef
 TEST_TARGETS += cxxapp
+
+# platapp: C executable, depends on plat.
+# Tests: platform-specific _SRCS.<arch> and _CPPFLAGS.<os> suffixes.
+EXECUTABLES += platapp
+platapp_DIR  := $(ROOT)
+platapp_SRCS  = platmain.c
+platapp_LIBS  = plat
+define platapp_TESTCMD
+$(platapp_EXEC)
+$(platapp_EXEC) | grep -q "plat_has_arch=1"
+endef
+TEST_TARGETS += platapp

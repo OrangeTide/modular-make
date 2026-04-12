@@ -1,5 +1,5 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.1.3]
-# updated: 30 Mar 2026
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.2.0]
+# updated: 12 Apr 2026
 # Requires GNU Make (tested with 4.x).
 #
 # ============================================================================
@@ -114,6 +114,24 @@
 #   <name>_EXPORTED_CXXFLAGS  C++ compiler flags exported to dependents
 #   <name>_EXPORTED_LDFLAGS   Linker flags exported to dependents
 #   <name>_EXPORTED_LDLIBS    Link libraries exported to dependents
+#
+# Platform-specific variable suffixes:
+#
+#   Most per-target variables (all of the above plus _SRCS, _LIBS, and
+#   _EXTRA_OBJS) accept .<os>, .<arch>, and .<os>.<arch> suffixes.
+#   After all module.mk files are loaded, suffixed values are appended
+#   to the base variable automatically.  <os> comes from `uname -s`
+#   (Linux, Darwin, Windows_NT under MSYS/Cygwin) and <arch> from
+#   `uname -m` (x86_64, aarch64, ...).
+#
+#   Example:
+#
+#     mylib_SRCS         = common.c
+#     mylib_SRCS.Linux   = linux/platform.c
+#     mylib_SRCS.Darwin  = macos/platform.c
+#     mylib_LDLIBS.Linux = -lm -ldl
+#     mylib_CFLAGS.Linux.x86_64 = -msse4.2
+#
 #   <name>_TESTCMD   Shell commands to test the target, written with
 #                     define/endef.  Each line runs as a separate
 #                     shell command; if any fails, make stops.
@@ -406,6 +424,27 @@ explode_dirs = $(sort $(filter-out .,$(if $1,$(call explode_dirs,$(filter-out $1
 # _out/<triplet>/lib respectively.
 
 TARGET_TRIPLET := $(shell $(CC) -dumpmachine 2>/dev/null)
+
+# Derive target OS and arch from the compiler's triplet so that
+# platform-specific variable suffixes (e.g. _SRCS.aarch64) resolve
+# correctly even when cross-compiling with CC=aarch64-linux-gnu-gcc.
+# Falls back to uname when the compiler cannot report a triplet.
+ifdef TARGET_TRIPLET
+  _triplet_fields := $(subst -, ,$(TARGET_TRIPLET))
+  _TARGET_ARCH := $(word 1,$(_triplet_fields))
+  # Map triplet OS component to the uname -s spelling used in suffixes.
+  _triplet_os := $(word 2,$(_triplet_fields))
+  _TARGET_OS := $(if $(filter linux,$(_triplet_os)),Linux,\
+                $(if $(filter apple,$(_triplet_os)),Darwin,\
+                $(if $(filter w64 pc,$(_triplet_os)),$(if $(findstring mingw,$(TARGET_TRIPLET)),Windows_NT,\
+                $(if $(findstring cygwin,$(TARGET_TRIPLET)),Windows_NT,\
+                $(_triplet_os))),\
+                $(_triplet_os))))
+else
+  _TARGET_OS   := $(shell uname -s)
+  _TARGET_ARCH := $(shell uname -m)
+endif
+
 ifdef TARGET_TRIPLET
   BUILDDIR := _build/$(TARGET_TRIPLET)
   OUTDIR := _out/$(TARGET_TRIPLET)
@@ -486,6 +525,27 @@ $(if $(filter-out $(_modules_loaded),$(_module_files)),\
 endef
 
 $(eval $(value _load_modules))
+
+### Platform-specific variable merging ###
+
+# Per-target variables can carry .<os>, .<arch>, or .<os>.<arch> suffixes
+# (e.g. foo_SRCS.Linux, foo_LDLIBS.Darwin.arm64).  After all module.mk
+# files are loaded the suffixed values are appended to the base variable.
+# _TARGET_OS is from `uname -s` (Linux, Darwin, Windows_NT under MSYS/Cygwin).
+# _TARGET_ARCH is from `uname -m` (x86_64, aarch64, ...).
+
+_target_platform_suffixes = .$(_TARGET_OS) .$(_TARGET_ARCH) .$(_TARGET_OS).$(_TARGET_ARCH)
+_merge_one = $(foreach s,$2,$(eval $1_$3 += $($1_$3$s)))
+
+_platform_vars = SRCS CFLAGS CXXFLAGS CPPFLAGS LDFLAGS LDLIBS \
+  ASFLAGS DFLAGS FFLAGS NASMFLAGS FPCFLAGS GM2FLAGS EXTRA_OBJS LIBS \
+  EXPORTED_CPPFLAGS EXPORTED_CFLAGS EXPORTED_CXXFLAGS EXPORTED_LDFLAGS EXPORTED_LDLIBS
+
+define _merge_platform_vars
+$(foreach V,$(_platform_vars),$(call _merge_one,$1,$2,$V))
+endef
+
+$(foreach t,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(eval $(call _merge_platform_vars,$t,$(_target_platform_suffixes))))
 
 ### Rules ###
 

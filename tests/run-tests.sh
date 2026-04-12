@@ -43,6 +43,11 @@ run_test "make run-tests" $MAKE run-tests $EXTRA
 run_test "make run-test-app" $MAKE run-test-app $EXTRA
 run_test "make run-test-cxxapp" $MAKE run-test-cxxapp $EXTRA
 
+printf "\n=== platform suffixes ===\n"
+run_test "platapp runs" _out/*/bin/platapp
+run_test "platapp: arch-specific source linked (plat_has_arch=1)" sh -c '_out/*/bin/platapp | grep -q "plat_has_arch=1"'
+run_test "platapp: OS name set via _CPPFLAGS.<os>" sh -c '_out/*/bin/platapp | grep -q "plat_os_name=$(uname -s)"'
+
 printf "\n=== clean ===\n"
 run_test "make clean" $MAKE clean $EXTRA
 run_test "binaries removed" sh -c '! test -f _out/*/bin/app'
