@@ -2,3 +2,4 @@
 /_out
 /_site
 .env
+/compile_commands.json
