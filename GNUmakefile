@@ -580,14 +580,14 @@ get_srcs     = $(wildcard $(addprefix $($1_DIR),$($1_SRCS)))
 # get_gen_srcs: expand _GENERATED_SRCS relative to BUILDDIR/_DIR
 get_gen_srcs = $(addprefix $(BUILDDIR)/$($1_DIR),$($1_GENERATED_SRCS))
 # get_objs: map source files to object files (works for any extension)
-get_objs     = $(foreach X,$(EXTENSIONS),$(patsubst %.$X,$(BUILDDIR)/%.o,$(filter %.$X,$(call get_srcs,$1))))
+get_objs     = $(strip $(foreach X,$(EXTENSIONS),$(patsubst %.$X,$(BUILDDIR)/%.o,$(filter %.$X,$(call get_srcs,$1)))))
 # get_gen_objs: map generated sources (already under BUILDDIR) to .o files
-get_gen_objs = $(foreach X,$(EXTENSIONS),$(patsubst %.$X,%.o,$(filter %.$X,$(call get_gen_srcs,$1))))
+get_gen_objs = $(strip $(foreach X,$(EXTENSIONS),$(patsubst %.$X,%.o,$(filter %.$X,$(call get_gen_srcs,$1)))))
 # get_all_objs: combined regular and generated objects
-get_all_objs = $(call get_objs,$1) $(call get_gen_objs,$1)
+get_all_objs = $(strip $(call get_objs,$1) $(call get_gen_objs,$1))
 # Compiler side-effect files: FPC emits .ppu alongside .o, gm2 emits .d
-get_side_effects = $(patsubst %.pas,$(BUILDDIR)/%.ppu,$(filter %.pas,$(call get_srcs,$1))) \
-                   $(patsubst %.mod,$(BUILDDIR)/%.d,$(filter %.mod,$(call get_srcs,$1)))
+get_side_effects = $(strip $(patsubst %.pas,$(BUILDDIR)/%.ppu,$(filter %.pas,$(call get_srcs,$1))) \
+                   $(patsubst %.mod,$(BUILDDIR)/%.d,$(filter %.mod,$(call get_srcs,$1))))
 get_lib      = $(BUILDDIR)/$1$(EXTENSION.lib)
 get_so       = $(LIBDIR)/lib$1$(EXTENSION.dll)
 get_lib_file = $(if $(filter $1,$(LIBRARIES)),$(call get_lib,$1),$(call get_so,$1))
@@ -605,11 +605,11 @@ _uniq_last = $(call _rev,$(call _uniq_first,$(call _rev,$1)))
 get_all_libs = $(eval _libs_depth :=)$(call _uniq_last,$(call _expand_libs,$($1_LIBS)))
 
 # Collect exported flags from all transitive _LIBS dependencies.
-get_exported_cppflags = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CPPFLAGS))
-get_exported_cflags   = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CFLAGS))
-get_exported_cxxflags = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CXXFLAGS))
-get_exported_ldflags  = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_LDFLAGS))
-get_exported_ldlibs   = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_LDLIBS))
+get_exported_cppflags = $(strip $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CPPFLAGS)))
+get_exported_cflags   = $(strip $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CFLAGS)))
+get_exported_cxxflags = $(strip $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CXXFLAGS)))
+get_exported_ldflags  = $(strip $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_LDFLAGS)))
+get_exported_ldlibs   = $(strip $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_LDLIBS)))
 
 # needs_cxx: true if target $1 or any transitive dep has C++/Obj-C++ sources
 needs_cxx = $(or $(filter %.cc %.cpp %.mm,$(call get_srcs,$1) $(call get_gen_srcs,$1)),$(strip $(foreach L,$(call get_all_libs,$1),$(filter %.cc %.cpp %.mm,$(call get_srcs,$L) $(call get_gen_srcs,$L)))))
@@ -654,8 +654,7 @@ $(call get_all_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
 $(call get_all_objs,$1) : FPCFLAGS=$$($1_FPCFLAGS)
 $(call get_all_objs,$1) : GM2FLAGS=$$($1_GM2FLAGS)
 clean_$1 :
-	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(call get_side_effects,$1)
-	$$(RM) $$(call get_gen_srcs,$1)
+	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(call get_side_effects,$1) $$(call get_gen_srcs,$1)
 	$$(RM) $(call get_lib,$1)
 endef
 $(foreach l,$(LIBRARIES),$(eval $(call library_rules,$l)))
@@ -678,8 +677,7 @@ $(call get_all_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
 $(call get_all_objs,$1) : FPCFLAGS=-Cg $$($1_FPCFLAGS)
 $(call get_all_objs,$1) : GM2FLAGS=-fPIC $$($1_GM2FLAGS)
 clean_$1 :
-	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(call get_side_effects,$1)
-	$$(RM) $$(call get_gen_srcs,$1)
+	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(call get_side_effects,$1) $$(call get_gen_srcs,$1)
 	$$(RM) $(call get_so,$1)
 endef
 $(foreach s,$(SHARED_LIBS),$(eval $(call shared_library_rules,$s)))
@@ -706,8 +704,7 @@ $(call get_all_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
 $(call get_all_objs,$1) : FPCFLAGS=$$($1_FPCFLAGS)
 $(call get_all_objs,$1) : GM2FLAGS=$$($1_GM2FLAGS)
 clean_$1 :
-	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(call get_side_effects,$1)
-	$$(RM) $$(call get_gen_srcs,$1)
+	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(call get_side_effects,$1) $$(call get_gen_srcs,$1)
 	$$(RM) $(BINDIR)/$1$(EXTENSION.exe)
 endef
 $(foreach p,$(EXECUTABLES),$(eval $(call project_rules,$p)))
