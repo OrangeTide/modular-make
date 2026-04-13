@@ -1,4 +1,4 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.2.1]
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.2.2]
 # updated: 12 Apr 2026
 # Requires GNU Make (tested with 4.x).
 #
@@ -96,6 +96,13 @@
 #   <name>_NASMFLAGS NASM flags             (.asm files)
 #   <name>_FPCFLAGS  Free Pascal flags      (.pas files)
 #   <name>_GM2FLAGS  GCC Modula-2 flags     (.mod files)
+#   <name>_GENERATED_SRCS  Source files produced by code generators.
+#                     Paths are relative to BUILDDIR/<name>_DIR (the
+#                     generated source mirror of the module directory).
+#                     The build system compiles them from BUILDDIR
+#                     instead of the source tree.  The module.mk must
+#                     provide a rule to create each generated file.
+#                     Wildcards and platform suffixes are supported.
 #   <name>_EXTRA_OBJS  Additional pre-built .o files to link (not compiled
 #                     or cleaned by this build system).
 #   <name>_LDFLAGS   Linker flags           (executables and shared libs)
@@ -117,8 +124,9 @@
 #
 # Platform-specific variable suffixes:
 #
-#   Most per-target variables (all of the above plus _SRCS, _LIBS, and
-#   _EXTRA_OBJS) accept .<os>, .<arch>, and .<os>.<arch> suffixes.
+#   Most per-target variables (all of the above plus _SRCS,
+#   _GENERATED_SRCS, _LIBS, and _EXTRA_OBJS) accept .<os>, .<arch>,
+#   and .<os>.<arch> suffixes.
 #   After all module.mk files are loaded, suffixed values are appended
 #   to the base variable automatically.  <os> comes from `uname -s`
 #   (Linux, Darwin, Windows_NT under MSYS/Cygwin) and <arch> from
@@ -205,6 +213,21 @@
 # define/endef for multi-line test commands -- each line becomes a
 # separate recipe line checked for errors by Make.  Run all tests
 # with 'make run-tests' or a single test with 'make run-test-<name>'.
+#
+# Example -- generated source files:
+#
+#   EXECUTABLES += myapp
+#   myapp_DIR   := $(dir $(lastword $(MAKEFILE_LIST)))
+#   myapp_SRCS  = main.c
+#   myapp_GENERATED_SRCS = proto_msg.c
+#
+#   $(BUILDDIR)/$(myapp_DIR)proto_msg.c : $(myapp_DIR)proto.idl | $(BUILDDIR)/$(myapp_DIR)
+#   	my-codegen $< -o $@
+#
+# The generated file ends up at _build/<triplet>/src/proto_msg.c (or
+# wherever _DIR points) and is compiled to _build/<triplet>/src/proto_msg.o
+# just like a normal source file.  The module.mk must supply the rule
+# that creates the generated file.
 #
 # ============================================================================
 # RECURSIVE MODULE DISCOVERY
@@ -540,7 +563,7 @@ $(eval $(value _load_modules))
 _target_platform_suffixes = .$(_TARGET_OS) .$(_TARGET_ARCH) .$(_TARGET_OS).$(_TARGET_ARCH)
 _merge_one = $(foreach s,$2,$(eval $1_$3 += $($1_$3$s)))
 
-_platform_vars = SRCS CFLAGS CXXFLAGS CPPFLAGS LDFLAGS LDLIBS \
+_platform_vars = SRCS GENERATED_SRCS CFLAGS CXXFLAGS CPPFLAGS LDFLAGS LDLIBS \
   ASFLAGS DFLAGS FFLAGS NASMFLAGS FPCFLAGS GM2FLAGS EXTRA_OBJS LIBS \
   EXPORTED_CPPFLAGS EXPORTED_CFLAGS EXPORTED_CXXFLAGS EXPORTED_LDFLAGS EXPORTED_LDLIBS
 
@@ -554,8 +577,14 @@ $(foreach t,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(eval $(call _merge_plat
 
 # get_srcs: expand _SRCS (supports wildcards like *.c) relative to _DIR
 get_srcs     = $(wildcard $(addprefix $($1_DIR),$($1_SRCS)))
+# get_gen_srcs: expand _GENERATED_SRCS relative to BUILDDIR/_DIR
+get_gen_srcs = $(addprefix $(BUILDDIR)/$($1_DIR),$($1_GENERATED_SRCS))
 # get_objs: map source files to object files (works for any extension)
 get_objs     = $(foreach X,$(EXTENSIONS),$(patsubst %.$X,$(BUILDDIR)/%.o,$(filter %.$X,$(call get_srcs,$1))))
+# get_gen_objs: map generated sources (already under BUILDDIR) to .o files
+get_gen_objs = $(foreach X,$(EXTENSIONS),$(patsubst %.$X,%.o,$(filter %.$X,$(call get_gen_srcs,$1))))
+# get_all_objs: combined regular and generated objects
+get_all_objs = $(call get_objs,$1) $(call get_gen_objs,$1)
 # Compiler side-effect files: FPC emits .ppu alongside .o, gm2 emits .d
 get_side_effects = $(patsubst %.pas,$(BUILDDIR)/%.ppu,$(filter %.pas,$(call get_srcs,$1))) \
                    $(patsubst %.mod,$(BUILDDIR)/%.d,$(filter %.mod,$(call get_srcs,$1)))
@@ -583,13 +612,13 @@ get_exported_ldflags  = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_LDFLAG
 get_exported_ldlibs   = $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_LDLIBS))
 
 # needs_cxx: true if target $1 or any transitive dep has C++/Obj-C++ sources
-needs_cxx = $(or $(filter %.cc %.cpp %.mm,$(call get_srcs,$1)),$(strip $(foreach L,$(call get_all_libs,$1),$(filter %.cc %.cpp %.mm,$(call get_srcs,$L)))))
+needs_cxx = $(or $(filter %.cc %.cpp %.mm,$(call get_srcs,$1) $(call get_gen_srcs,$1)),$(strip $(foreach L,$(call get_all_libs,$1),$(filter %.cc %.cpp %.mm,$(call get_srcs,$L) $(call get_gen_srcs,$L)))))
 
 # _all_dirs: every directory that contains a build artifact (used by clean-all)
 _all_dirs = $(sort $(dir \
-  $(foreach p,$(EXECUTABLES),$(BINDIR)/$p$(EXTENSION.exe) $(call get_objs,$p)) \
-  $(foreach l,$(LIBRARIES),$(call get_lib,$l) $(call get_objs,$l)) \
-  $(foreach s,$(SHARED_LIBS),$(call get_so,$s) $(call get_objs,$s))))
+  $(foreach p,$(EXECUTABLES),$(BINDIR)/$p$(EXTENSION.exe) $(call get_all_objs,$p)) \
+  $(foreach l,$(LIBRARIES),$(call get_lib,$l) $(call get_all_objs,$l)) \
+  $(foreach s,$(SHARED_LIBS),$(call get_so,$s) $(call get_all_objs,$s))))
 
 .SECONDEXPANSION:
 all :: $$(EXECUTABLES)
@@ -606,19 +635,20 @@ clean-all : clean
 # Per-library rules: compile objects and pack into a static archive.
 define library_rules
 $1 : $(call get_lib,$1)
-$(call get_lib,$1) : $$(call get_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$($1_LIBS),$(call get_lib_file,$d)) | $$(@D)/
+$(call get_lib,$1) : $$(call get_all_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$($1_LIBS),$(call get_lib_file,$d)) | $$(@D)/
 	$$(link.a)
-$(call get_objs,$1) : CFLAGS=$$($1_CFLAGS) $(call get_exported_cflags,$1)
-$(call get_objs,$1) : CXXFLAGS=$$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
-$(call get_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
-$(call get_objs,$1) : DFLAGS=$$($1_DFLAGS)
-$(call get_objs,$1) : FFLAGS=$$($1_FFLAGS)
-$(call get_objs,$1) : ASFLAGS=$$($1_ASFLAGS)
-$(call get_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
-$(call get_objs,$1) : FPCFLAGS=$$($1_FPCFLAGS)
-$(call get_objs,$1) : GM2FLAGS=$$($1_GM2FLAGS)
+$(call get_all_objs,$1) : CFLAGS=$$($1_CFLAGS) $(call get_exported_cflags,$1)
+$(call get_all_objs,$1) : CXXFLAGS=$$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
+$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
+$(call get_all_objs,$1) : DFLAGS=$$($1_DFLAGS)
+$(call get_all_objs,$1) : FFLAGS=$$($1_FFLAGS)
+$(call get_all_objs,$1) : ASFLAGS=$$($1_ASFLAGS)
+$(call get_all_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
+$(call get_all_objs,$1) : FPCFLAGS=$$($1_FPCFLAGS)
+$(call get_all_objs,$1) : GM2FLAGS=$$($1_GM2FLAGS)
 clean_$1 :
-	$$(RM) $$(call get_objs,$1) $$(patsubst %.o,%.dep,$$(call get_objs,$1)) $$(call get_side_effects,$1)
+	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(call get_side_effects,$1)
+	$$(RM) $$(call get_gen_srcs,$1)
 	$$(RM) $(call get_lib,$1)
 endef
 $(foreach l,$(LIBRARIES),$(eval $(call library_rules,$l)))
@@ -626,22 +656,23 @@ $(foreach l,$(LIBRARIES),$(eval $(call library_rules,$l)))
 # Per-shared-library rules: compile with -fPIC, link with -shared.
 define shared_library_rules
 $1 : $(call get_so,$1)
-$(call get_so,$1) : $$(call get_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$($1_LIBS),$(call get_lib_file,$d)) | $$(@D)/
+$(call get_so,$1) : $$(call get_all_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$($1_LIBS),$(call get_lib_file,$d)) | $$(@D)/
 	$$(link.so)
 $(call get_so,$1) : CXX_MODE=$(if $(call needs_cxx,$1),1)
 $(call get_so,$1) : LDFLAGS=$$($1_LDFLAGS) $(call get_exported_ldflags,$1)
 $(call get_so,$1) : LDLIBS=$$($1_LDLIBS) $(call get_exported_ldlibs,$1)
-$(call get_objs,$1) : CFLAGS=-fPIC $$($1_CFLAGS) $(call get_exported_cflags,$1)
-$(call get_objs,$1) : CXXFLAGS=-fPIC $$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
-$(call get_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
-$(call get_objs,$1) : DFLAGS=-fPIC $$($1_DFLAGS)
-$(call get_objs,$1) : FFLAGS=-fPIC $$($1_FFLAGS)
-$(call get_objs,$1) : ASFLAGS=-fPIC $$($1_ASFLAGS)
-$(call get_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
-$(call get_objs,$1) : FPCFLAGS=-Cg $$($1_FPCFLAGS)
-$(call get_objs,$1) : GM2FLAGS=-fPIC $$($1_GM2FLAGS)
+$(call get_all_objs,$1) : CFLAGS=-fPIC $$($1_CFLAGS) $(call get_exported_cflags,$1)
+$(call get_all_objs,$1) : CXXFLAGS=-fPIC $$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
+$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
+$(call get_all_objs,$1) : DFLAGS=-fPIC $$($1_DFLAGS)
+$(call get_all_objs,$1) : FFLAGS=-fPIC $$($1_FFLAGS)
+$(call get_all_objs,$1) : ASFLAGS=-fPIC $$($1_ASFLAGS)
+$(call get_all_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
+$(call get_all_objs,$1) : FPCFLAGS=-Cg $$($1_FPCFLAGS)
+$(call get_all_objs,$1) : GM2FLAGS=-fPIC $$($1_GM2FLAGS)
 clean_$1 :
-	$$(RM) $$(call get_objs,$1) $$(patsubst %.o,%.dep,$$(call get_objs,$1)) $$(call get_side_effects,$1)
+	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(call get_side_effects,$1)
+	$$(RM) $$(call get_gen_srcs,$1)
 	$$(RM) $(call get_so,$1)
 endef
 $(foreach s,$(SHARED_LIBS),$(eval $(call shared_library_rules,$s)))
@@ -653,22 +684,23 @@ $(foreach s,$(SHARED_LIBS),$(eval $(call shared_library_rules,$s)))
 define project_rules
 $1_EXEC := $(BINDIR)/$1$(EXTENSION.exe)
 $1 : $(BINDIR)/$1$(EXTENSION.exe)
-$(BINDIR)/$1$(EXTENSION.exe) : $$(call get_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$(call get_all_libs,$1),$(call get_lib_file,$d)) | $(BINDIR)/
+$(BINDIR)/$1$(EXTENSION.exe) : $$(call get_all_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$(call get_all_libs,$1),$(call get_lib_file,$d)) | $(BINDIR)/
 	$$(link.c)
 $(BINDIR)/$1$(EXTENSION.exe) : CXX_MODE=$(if $(call needs_cxx,$1),1)
 $(BINDIR)/$1$(EXTENSION.exe) : LDFLAGS=$$($1_LDFLAGS) $(call get_exported_ldflags,$1)
 $(BINDIR)/$1$(EXTENSION.exe) : LDLIBS=$$($1_LDLIBS) $(call get_exported_ldlibs,$1)
-$(call get_objs,$1) : CFLAGS=$$($1_CFLAGS) $(call get_exported_cflags,$1)
-$(call get_objs,$1) : CXXFLAGS=$$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
-$(call get_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
-$(call get_objs,$1) : DFLAGS=$$($1_DFLAGS)
-$(call get_objs,$1) : FFLAGS=$$($1_FFLAGS)
-$(call get_objs,$1) : ASFLAGS=$$($1_ASFLAGS)
-$(call get_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
-$(call get_objs,$1) : FPCFLAGS=$$($1_FPCFLAGS)
-$(call get_objs,$1) : GM2FLAGS=$$($1_GM2FLAGS)
+$(call get_all_objs,$1) : CFLAGS=$$($1_CFLAGS) $(call get_exported_cflags,$1)
+$(call get_all_objs,$1) : CXXFLAGS=$$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
+$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
+$(call get_all_objs,$1) : DFLAGS=$$($1_DFLAGS)
+$(call get_all_objs,$1) : FFLAGS=$$($1_FFLAGS)
+$(call get_all_objs,$1) : ASFLAGS=$$($1_ASFLAGS)
+$(call get_all_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
+$(call get_all_objs,$1) : FPCFLAGS=$$($1_FPCFLAGS)
+$(call get_all_objs,$1) : GM2FLAGS=$$($1_GM2FLAGS)
 clean_$1 :
-	$$(RM) $$(call get_objs,$1) $$(patsubst %.o,%.dep,$$(call get_objs,$1)) $$(call get_side_effects,$1)
+	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(call get_side_effects,$1)
+	$$(RM) $$(call get_gen_srcs,$1)
 	$$(RM) $(BINDIR)/$1$(EXTENSION.exe)
 endef
 $(foreach p,$(EXECUTABLES),$(eval $(call project_rules,$p)))
@@ -690,8 +722,11 @@ run-tests : $(addprefix run-test-,$(TEST_TARGETS))
 # set via target-specific variables on the individual .o files above.
 $(foreach X,$(EXTENSIONS),$(eval $(BUILDDIR)/%.o : %.$X | $$$$(@D)/ ; $$(compile.$X)))
 
+# Compile rules for generated sources (source and object both under BUILDDIR).
+$(foreach X,$(EXTENSIONS),$(eval $(BUILDDIR)/%.o : $(BUILDDIR)/%.$X | $$$$(@D)/ ; $$(compile.$X)))
+
 # Pull in generated dependency files (silent on first build)
--include $(patsubst %.o,%.dep,$(foreach p,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(call get_objs,$p)))
+-include $(patsubst %.o,%.dep,$(foreach p,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(call get_all_objs,$p)))
 
 # Generate compile_commands.json for clangd / LSP tooling.
 # Dry-runs the build and extracts compile commands for all languages

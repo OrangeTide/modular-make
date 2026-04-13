@@ -1,5 +1,5 @@
 ROOT := $(dir $(lastword $(MAKEFILE_LIST)))
-SUBDIRS = c cpp d fortran objc objcxx pascal modula2
+SUBDIRS = c cpp d fortran objc objcxx pascal modula2 codegen
 
 # executable: "hello" -- demonstrates C, C++, D, and Fortran
 EXECUTABLES += hello
