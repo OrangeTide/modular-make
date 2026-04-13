@@ -1,4 +1,4 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.2.2]
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.2.3]
 # updated: 12 Apr 2026
 # Requires GNU Make (tested with 4.x).
 #
@@ -221,7 +221,7 @@
 #   myapp_SRCS  = main.c
 #   myapp_GENERATED_SRCS = proto_msg.c
 #
-#   $(BUILDDIR)/$(myapp_DIR)proto_msg.c : $(myapp_DIR)proto.idl | $(BUILDDIR)/$(myapp_DIR)
+#   $(BUILDDIR)/$(myapp_DIR)proto_msg.c : $(myapp_DIR)proto.idl
 #   	my-codegen $< -o $@
 #
 # The generated file ends up at _build/<triplet>/src/proto_msg.c (or
@@ -621,6 +621,13 @@ _all_dirs = $(sort $(dir \
   $(foreach s,$(SHARED_LIBS),$(call get_so,$s) $(call get_all_objs,$s))))
 
 .SECONDEXPANSION:
+
+# Ensure directories exist for generated sources so that module.mk code
+# generation rules do not need order-only directory prerequisites
+# (secondary expansion is not available in module.mk files).
+_all_gen_srcs := $(foreach t,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(call get_gen_srcs,$t))
+$(_all_gen_srcs) : | $$(@D)/
+
 all :: $$(EXECUTABLES)
 clean : $$(addprefix clean_,$$(EXECUTABLES) $$(LIBRARIES) $$(SHARED_LIBS))
 clean-all : clean

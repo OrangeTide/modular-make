@@ -16,6 +16,6 @@ TEST_TARGETS += codegen_demo
 # Rule to generate version_info.c from version.txt.
 # The generated file lands in BUILDDIR under the same relative path as
 # the module directory, so _GENERATED_SRCS finds it automatically.
-$(BUILDDIR)/$(codegen_demo_DIR)version_info.c : $(codegen_demo_DIR)version.txt | $(BUILDDIR)/$(codegen_demo_DIR)
+$(BUILDDIR)/$(codegen_demo_DIR)version_info.c : $(codegen_demo_DIR)version.txt
 	printf '/* generated -- do not edit */\nconst char *version_info = "%s";\n' \
 		"$$(cat $<)" > $@
