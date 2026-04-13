@@ -628,7 +628,7 @@ _all_dirs = $(sort $(dir \
 _all_gen_srcs := $(foreach t,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(call get_gen_srcs,$t))
 $(_all_gen_srcs) : | $$(@D)/
 
-all :: $$(EXECUTABLES)
+all :: $$(EXECUTABLES) $(wildcard compile_commands.json)
 clean : $$(addprefix clean_,$$(EXECUTABLES) $$(LIBRARIES) $$(SHARED_LIBS))
 clean-all : clean
 	-printf '%s\n' $(call explode_dirs,$(_all_dirs)) | sort -r | while read -r d; do $(RMDIR) "$$d" 2>/dev/null; done; true
