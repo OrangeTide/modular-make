@@ -304,7 +304,7 @@ make CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++
 
 ## Requirements
 
-- GNU Make 4.x or later
+- GNU Make 4.0 or later (uses the `$(file)` function introduced in 4.0)
 - A C compiler (GCC, Clang, etc.)
 - Optional language compilers as needed by your project
 
