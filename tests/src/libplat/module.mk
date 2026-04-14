@@ -7,4 +7,5 @@ plat_SRCS.aarch64 = plat_aarch64.c
 plat_CPPFLAGS.Linux      = -DPLAT_OS_NAME='"Linux"'
 plat_CPPFLAGS.Darwin     = -DPLAT_OS_NAME='"Darwin"'
 plat_CPPFLAGS.Windows_NT = -DPLAT_OS_NAME='"Windows_NT"'
+plat_CPPFLAGS.Emscripten = -DPLAT_OS_NAME='"Emscripten"'
 plat_EXPORTED_CPPFLAGS = -I$(plat_DIR)

@@ -1,5 +1,5 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.2.4]
-# updated: 12 Apr 2026
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.3.1]
+# updated: 13 Apr 2026
 # Requires GNU Make 4.0 or later (uses $(file) function).
 #
 # ============================================================================
@@ -355,6 +355,10 @@ NASM    ?= nasm
 FPC     ?= fpc
 GM2     ?= gm2
 
+# Detect the compiler's target triplet early so platform guards in the
+# RELEASE block and module.mk files can reference it.
+TARGET_TRIPLET := $(shell $(CC) -dumpmachine 2>/dev/null)
+
 # Release build flags.  Invoke with `make RELEASE=1` for optimized binaries.
 #
 # Override architecture: `make RELEASE=1 RELEASE_MARCH=x86-64-v3`
@@ -386,11 +390,23 @@ ifdef RELEASE
     endif
   endif
 
-  _BUILD_MODE_CFLAGS  := -O2 $(_LTO) -march=$(RELEASE_MARCH) \
-    -ffunction-sections -fdata-sections
-  _BUILD_MODE_CPPFLAGS := -DNDEBUG
-  _BUILD_MODE_LDFLAGS := $(_LTO) -Wl,--gc-sections -Wl,-O1
-  $(info RELEASE build: -march=$(RELEASE_MARCH) $(_LTO))
+  ifneq ($(findstring emscripten,$(TARGET_TRIPLET)),)
+    # Emscripten does not support -march or -Wl,--gc-sections; its own
+    # optimizer handles dead-code elimination internally.
+    _BUILD_MODE_CFLAGS  := -O2 $(_LTO)
+    _BUILD_MODE_CPPFLAGS := -DNDEBUG
+    _BUILD_MODE_LDFLAGS := $(_LTO)
+  else
+    _BUILD_MODE_CFLAGS  := -O2 $(_LTO) -march=$(RELEASE_MARCH) \
+      -ffunction-sections -fdata-sections
+    _BUILD_MODE_CPPFLAGS := -DNDEBUG
+    _BUILD_MODE_LDFLAGS := $(_LTO) -Wl,--gc-sections -Wl,-O1
+  endif
+  ifneq ($(findstring emscripten,$(TARGET_TRIPLET)),)
+    $(info RELEASE build: Emscripten $(_LTO))
+  else
+    $(info RELEASE build: -march=$(RELEASE_MARCH) $(_LTO))
+  endif
 else ifdef DEBUG
   _BUILD_MODE_CFLAGS  := -Og -g -fno-omit-frame-pointer
   _BUILD_MODE_CPPFLAGS :=
@@ -458,8 +474,6 @@ explode_dirs = $(sort $(filter-out .,$(if $1,$(call explode_dirs,$(filter-out $1
 # each other.  Binaries and libraries go under _out/<triplet>/bin and
 # _out/<triplet>/lib respectively.
 
-TARGET_TRIPLET := $(shell $(CC) -dumpmachine 2>/dev/null)
-
 # Derive target OS and arch from the compiler's triplet so that
 # platform-specific variable suffixes (e.g. _SRCS.aarch64) resolve
 # correctly even when cross-compiling with CC=aarch64-linux-gnu-gcc.
@@ -468,13 +482,17 @@ ifdef TARGET_TRIPLET
   _triplet_fields := $(subst -, ,$(TARGET_TRIPLET))
   _TARGET_ARCH := $(word 1,$(_triplet_fields))
   # Map triplet OS component to the uname -s spelling used in suffixes.
+  # Some triplets place the OS-bearing word at position 3 (e.g.
+  # wasm32-unknown-emscripten), so fall back to findstring on the full
+  # triplet when the word-2 check does not match a known OS.
   _triplet_os := $(word 2,$(_triplet_fields))
-  _TARGET_OS := $(if $(filter linux,$(_triplet_os)),Linux,\
+  _TARGET_OS := $(strip $(if $(findstring emscripten,$(TARGET_TRIPLET)),Emscripten,\
+                $(if $(filter linux,$(_triplet_os)),Linux,\
                 $(if $(filter apple,$(_triplet_os)),Darwin,\
                 $(if $(filter w64 pc,$(_triplet_os)),$(if $(findstring mingw,$(TARGET_TRIPLET)),Windows_NT,\
                 $(if $(findstring cygwin,$(TARGET_TRIPLET)),Windows_NT,\
                 $(_triplet_os))),\
-                $(_triplet_os))))
+                $(_triplet_os))))))
 else
   _TARGET_OS   := $(shell uname -s)
   _TARGET_ARCH := $(shell uname -m)
@@ -493,7 +511,10 @@ BINDIR = $(OUTDIR)/bin
 LIBDIR = $(OUTDIR)/lib
 
 # Platform-dependent output extensions
-ifneq ($(findstring darwin,$(TARGET_TRIPLET)),)
+ifneq ($(findstring emscripten,$(TARGET_TRIPLET)),)
+  EXTENSION.exe := .html
+  EXTENSION.dll := .wasm
+else ifneq ($(findstring darwin,$(TARGET_TRIPLET)),)
   EXTENSION.exe :=
   EXTENSION.dll := .dylib
 else ifneq ($(findstring mingw,$(TARGET_TRIPLET)),)
@@ -714,7 +735,7 @@ $(call get_all_objs,$1) : FPCFLAGS=$$($1_FPCFLAGS)
 $(call get_all_objs,$1) : GM2FLAGS=$$($1_GM2FLAGS)
 clean_$1 :
 	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(patsubst %.o,%.cmd.json,$$(call get_all_objs,$1)) $$(call get_side_effects,$1) $$(call get_gen_srcs,$1)
-	$$(RM) $(BINDIR)/$1$(EXTENSION.exe)
+	$$(RM) $(BINDIR)/$1$(EXTENSION.exe)$(if $(findstring emscripten,$(TARGET_TRIPLET)), $(BINDIR)/$1.js $(BINDIR)/$1.wasm $(BINDIR)/$1.data)
 endef
 $(foreach p,$(EXECUTABLES),$(eval $(call project_rules,$p)))
 
