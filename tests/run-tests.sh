@@ -28,14 +28,16 @@ run_test() {
 EXTRA="$*"
 
 printf "=== clean slate ===\n"
-$MAKE clean $EXTRA 2>/dev/null || true
+$MAKE clean-all $EXTRA 2>/dev/null || true
 
-printf "\n=== default build ===\n"
+printf "\n=== default build (with defconfig auto-create) ===\n"
 run_test "make (default)" $MAKE $EXTRA
+run_test "config.mk auto-created" sh -c 'test -f _build/*/config.mk'
 run_test "app runs" _out/*/bin/app
 run_test "cxxapp runs" _out/*/bin/cxxapp
 run_test "app: foo transitive dep (foo_val=42)" sh -c '_out/*/bin/app | grep -q "foo_val=42"'
 run_test "app: baz C++ lib (baz_val=99)" sh -c '_out/*/bin/app | grep -q "baz_val=99"'
+run_test "app: extra from defconfig (label=bonus)" sh -c '_out/*/bin/app | grep -q "extra: label=bonus"'
 run_test "cxxapp: foo transitive dep (foo_val=42)" sh -c '_out/*/bin/cxxapp | grep -q "foo_val=42"'
 
 printf "\n=== run-tests ===\n"
@@ -69,8 +71,27 @@ run_test "make RELEASE=1 RELEASE_MARCH=x86-64" $MAKE RELEASE=1 RELEASE_MARCH=x86
 run_test "app runs (release x86-64)" _out/*/bin/app
 $MAKE clean $EXTRA >/dev/null 2>&1
 
+printf "\n=== config options ===\n"
+$MAKE clean-all $EXTRA >/dev/null 2>&1
+# Hide defconfig so auto-create does not fire.
+mv defconfig defconfig.bak
+run_test "build without config" $MAKE app $EXTRA
+run_test "app runs (no config)" _out/*/bin/app
+run_test "no extra output without config" sh -c '! _out/*/bin/app | grep -q "extra:"'
+$MAKE clean-all $EXTRA >/dev/null 2>&1
+mv defconfig.bak defconfig
+run_test "make defconfig" $MAKE defconfig $EXTRA
+run_test "config.mk created" sh -c 'test -f _build/*/config.mk'
+run_test "config.h generated" $MAKE app $EXTRA
+run_test "config.h created" sh -c 'test -f _build/*/config.h'
+run_test "config.h has CONFIG_EXTRA" sh -c 'grep -q "CONFIG_EXTRA" _build/*/config.h'
+run_test "app runs (with config)" _out/*/bin/app
+run_test "extra output with CONFIG_EXTRA" sh -c '_out/*/bin/app | grep -q "extra: label=bonus"'
+$MAKE clean $EXTRA >/dev/null 2>&1
+
 printf "\n=== clean-all ===\n"
 $MAKE $EXTRA >/dev/null 2>&1
+$MAKE clean $EXTRA >/dev/null 2>&1
 run_test "make clean-all" $MAKE clean-all $EXTRA
 run_test "build dirs removed" sh -c '! test -d _build'
 

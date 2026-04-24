@@ -252,6 +252,8 @@ The triplet (e.g. `x86_64-linux-gnu`) comes from `$(CC) -dumpmachine`, so cross-
 | `make clean-all` | `clean` plus remove empty build directories |
 | `make run-tests` | Build all test targets, then run their `_TESTCMD` |
 | `make run-test-<name>` | Build and test a single target |
+| `make defconfig` | Reset `config.mk` from `./defconfig` (auto-created on first build) |
+| `make defconfig_<name>` | Generate `config.mk` from `configs/<name>.mk` |
 
 ## Customization
 
@@ -301,6 +303,82 @@ Cross-compile example:
 ```sh
 make CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++
 ```
+
+## Build Configuration (CONFIG_* Options)
+
+Optional per-triplet feature toggles. A `config.mk` file in the build directory controls which features are enabled.
+
+### Quick Start
+
+If your project has a `defconfig` file, `config.mk` is auto-created from it on the first build. To reset or customize:
+
+```sh
+make defconfig          # reset _build/<triplet>/config.mk from ./defconfig
+# edit _build/<triplet>/config.mk
+make                    # rebuild with new settings
+```
+
+Without a `defconfig` or `config.mk`, the build works normally with all CONFIG options disabled.
+
+After changing config options that add or remove source files, remove `_build/` manually before rebuilding (`make clean` only removes files known to the current config).
+
+### How It Works
+
+For each `CONFIG_FOO = y` in `config.mk`:
+
+1. Per-target variables with a `.CONFIG_FOO` suffix are merged into their base variable:
+
+   ```makefile
+   myapp_SRCS.CONFIG_SSL = ssl.c
+   myapp_LDLIBS.CONFIG_SSL = -lssl -lcrypto
+   ```
+
+2. `-DCONFIG_FOO=1` is added to all compile commands, so C/C++ code can use `#ifdef CONFIG_FOO`.
+
+3. A `config.h` header is auto-generated in `_build/<triplet>/` (on the include path). Every `CONFIG_*` variable is emitted: `y` becomes `#define CONFIG_FOO 1`, and non-`y`/non-`n` values are written verbatim. Source files can `#include "config.h"` to access all config values without `-D` escaping.
+
+### Non-Boolean Parameters
+
+Non-boolean values use the `CONFIG_` prefix and are written verbatim into `config.h`:
+
+```makefile
+# config.mk
+CONFIG_CUSTOM_GREETING = y
+CONFIG_GREETING_STR = "What's up"
+```
+
+```c
+/* greet.c */
+#include "config.h"
+
+#ifndef CONFIG_GREETING_STR
+#define CONFIG_GREETING_STR "Hello"
+#endif
+```
+
+Strings with spaces, quotes, and special characters work naturally because `config.h` is generated directly -- no shell escaping is involved.
+
+### Conditional Module Registration
+
+Entire modules can be gated on a CONFIG option:
+
+```makefile
+ifeq ($(CONFIG_LUA_SCRIPTING),y)
+  LIBRARIES += lua_bridge
+  lua_bridge_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
+  lua_bridge_SRCS = lua_bridge.c
+endif
+```
+
+### Named Configurations
+
+Place named config templates in `configs/`:
+
+```sh
+make defconfig_minimal  # copies configs/minimal.mk to config.mk
+```
+
+Config options control features, not toolchains. Compiler selection (`CC`, `USE_CLANG`) and build modes (`DEBUG`, `RELEASE`) belong in `.env` or on the command line.
 
 ## Requirements
 

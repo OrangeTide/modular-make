@@ -1,0 +1,3 @@
+# Test suite default configuration
+CONFIG_EXTRA = y
+CONFIG_EXTRA_LABEL = "bonus"

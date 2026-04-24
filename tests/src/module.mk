@@ -6,6 +6,7 @@ SUBDIRS = libfoo libbar libbaz libplat
 EXECUTABLES += app
 app_DIR  := $(ROOT)
 app_SRCS  = main.c
+app_SRCS.CONFIG_EXTRA = extra.c
 app_LIBS  = foo baz
 define app_TESTCMD
 $(app_EXEC)
