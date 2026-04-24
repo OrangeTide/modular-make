@@ -1,5 +1,5 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.3.2]
-# updated: 13 Apr 2026
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.4.0]
+# updated: 23 Apr 2026
 # Requires GNU Make 4.0 or later (uses $(file) function).
 #
 # ============================================================================
