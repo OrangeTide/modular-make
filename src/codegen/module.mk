@@ -9,7 +9,7 @@ codegen_demo_SRCS = main.c
 codegen_demo_GENERATED_SRCS = version_info.c
 
 define codegen_demo_TESTCMD
-$(codegen_demo_EXEC)
+$(codegen_demo_RUN)
 endef
 TEST_TARGETS += codegen_demo
 
