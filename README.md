@@ -276,6 +276,8 @@ Override on the command line, in the environment, or in a `.env` file (copy `env
 | `RELEASE_MARCH` | `native` | Target architecture for release builds (e.g. `x86-64-v2`) |
 | `MKDIR_P` | `mkdir -p` | Directory creation |
 | `RMDIR` | `rmdir` | Directory removal |
+| `V` | (unset) | Verbose output. `V=1` prints full command lines (recommended for CI/CD). Default shows short tags (`CC`, `LD`, `AR`, etc.) |
+| `COLOR` | (auto) | Color for quiet-mode tags. Auto-detected by default. `COLOR=0` disables, `COLOR=1` forces on |
 
 `DEBUG` and `RELEASE` are mutually exclusive. Build mode flags are injected into all GCC-based compile and link commands. LTO is auto-detected by probing the full toolchain (compile, archive, link). Uses `-flto=thin` with Clang and `-flto=auto` with GCC. Pascal (FPC) is not affected.
 
@@ -302,6 +304,13 @@ Cross-compile example:
 
 ```sh
 make CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++
+```
+
+Verbose output (recommended for CI/CD):
+
+```sh
+make V=1
+make V=1 RELEASE=1
 ```
 
 ## Build Configuration (CONFIG_* Options)

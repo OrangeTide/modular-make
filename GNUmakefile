@@ -1,5 +1,5 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.4.3]
-# updated: 25 Apr 2026
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.5.0]
+# updated: 01 May 2026
 # Requires GNU Make 4.0 or later (uses $(file) function).
 #
 # ============================================================================
@@ -376,6 +376,11 @@
 #   ARFLAGS     Archiver flags                     (default: rvD)
 #   MKDIR_P     Directory creation command          (default: mkdir -p)
 #   RMDIR       Directory removal command           (default: rmdir)
+#   V           Verbose output.  V=1 prints full command lines.
+#               Default (quiet) prints short tags (CC, LD, AR, etc.).
+#               Recommended: V=1 for CI/CD pipelines.
+#   COLOR       Terminal color for quiet-mode tags.  Auto-detected by
+#               default.  Set COLOR=0 to disable, COLOR=1 to force on.
 #
 #   DEBUG       If set, enable debug build flags (-Og -g
 #               -fno-omit-frame-pointer).
@@ -408,6 +413,44 @@
 # --- Optional .env for local configuration ----------------------------------
 # Variables like USE_CLANG, RELEASE, RELEASE_MARCH, etc.  See env.example.
 -include .env
+
+# --- Verbose / quiet mode ----------------------------------------------------
+# V=1 shows full command lines (recommended for CI/CD).
+# Default shows short summaries (CC, LD, AR, etc.).
+# COLOR=1 forces color, COLOR=0 disables, unset auto-detects terminal.
+ifneq ($(V),1)
+  ifdef COLOR
+    ifneq ($(COLOR),0)
+      _USE_COLOR := 1
+    endif
+  else
+    _USE_COLOR := $(shell test -t 2 && echo 1)
+  endif
+  ifdef _USE_COLOR
+    _c_tag  := \033[32m
+    _c_link := \033[36m
+    _c_ar   := \033[33m
+    _c_rst  := \033[0m
+  endif
+  _Q := @
+  _ar_redir := >/dev/null 2>&1
+  _fpc_redir := >/dev/null
+  _quiet.cc     = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'CC' '$<';
+  _quiet.cxx    = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'CXX' '$<';
+  _quiet.gdc    = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'GDC' '$<';
+  _quiet.objc   = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'OBJC' '$<';
+  _quiet.objcxx = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'OBJCXX' '$<';
+  _quiet.fc     = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'FC' '$<';
+  _quiet.as     = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'AS' '$<';
+  _quiet.nasm   = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'NASM' '$<';
+  _quiet.fpc    = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'FPC' '$<';
+  _quiet.gm2    = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'GM2' '$<';
+  _quiet.ld     = @printf '  $(_c_link)%-8s$(_c_rst) %s\n' 'LD' '$@';
+  _quiet.ar     = @printf '  $(_c_ar)%-8s$(_c_rst) %s\n' 'AR' '$@';
+  _quiet.so     = @printf '  $(_c_link)%-8s$(_c_rst) %s\n' 'LDSO' '$@';
+  _quiet.strip  = @printf '  $(_c_ar)%-8s$(_c_rst) %s\n' 'STRIP' '$@';
+  _quiet.gen    = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'GEN' '$@';
+endif
 
 # --- Flags ------------------------------------------------------------------
 
@@ -502,9 +545,9 @@ endif
 # filename next to the binary.  Enabled for RELEASE; harmless if absent.
 ifdef RELEASE
   define _split_debug
-	$(OBJCOPY) --only-keep-debug $@ $@.debug
-	$(STRIP) --strip-debug --strip-unneeded $@
-	$(OBJCOPY) --add-gnu-debuglink=$@.debug $@
+	$(_quiet.strip)$(OBJCOPY) --only-keep-debug $@ $@.debug
+	$(_Q)$(STRIP) --strip-debug --strip-unneeded $@
+	$(_Q)$(OBJCOPY) --add-gnu-debuglink=$@.debug $@
   endef
 endif
 
@@ -533,21 +576,21 @@ endef
 EXTENSIONS := c cc cpp d m mm f f90 S asm pas mod
 
 # Command Macros
-link.c      = $(if $(CXX_MODE),$(CXX),$(CC)) -o $@ $(_BUILD_MODE_LDFLAGS) $(PROJECT_LDFLAGS) $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(PROJECT_LDLIBS) $(LDLIBS)
-link.a      = $(RM) $@.tmp && $(AR) $(ARFLAGS) $@.tmp $(filter %.o,$^) && mv -f $@.tmp $@
-link.so     = $(if $(CXX_MODE),$(CXX),$(CC)) -shared -o $@ $(_BUILD_MODE_LDFLAGS) $(PROJECT_LDFLAGS) $(LDFLAGS) $^ $(PROJECT_LDLIBS) $(LDLIBS)
-compile.c   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(CPPFLAGS)
-compile.cc  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.cpp = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.d   = $(GDC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_DFLAGS) $(PROJECT_CPPFLAGS) $(DFLAGS)
-compile.m   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(CPPFLAGS)
-compile.mm  = $(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.f   = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_FFLAGS) $(PROJECT_CPPFLAGS) $(FFLAGS)
-compile.f90 = $(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_FFLAGS) $(PROJECT_CPPFLAGS) $(FFLAGS)
-compile.S   = $(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(ASFLAGS) $(CPPFLAGS)
-compile.asm = $(NASM) -f $(NASM_FMT) -o $@ $(NASMFLAGS) $<
-compile.pas = $(FPC) -Cn -FE$(@D) -FU$(@D) $(FPCFLAGS) $<
-compile.mod = $(GM2) -c -o $@ $< -fcpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_GM2FLAGS) $(PROJECT_CPPFLAGS) $(GM2FLAGS)
+link.c      = $(_quiet.ld)$(if $(CXX_MODE),$(CXX),$(CC)) -o $@ $(_BUILD_MODE_LDFLAGS) $(PROJECT_LDFLAGS) $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(PROJECT_LDLIBS) $(LDLIBS)
+link.a      = $(_quiet.ar)$(RM) $@.tmp && $(AR) $(ARFLAGS) $@.tmp $(filter %.o,$^) $(_ar_redir) && mv -f $@.tmp $@
+link.so     = $(_quiet.so)$(if $(CXX_MODE),$(CXX),$(CC)) -shared -o $@ $(_BUILD_MODE_LDFLAGS) $(PROJECT_LDFLAGS) $(LDFLAGS) $^ $(PROJECT_LDLIBS) $(LDLIBS)
+compile.c   = $(_quiet.cc)$(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(CPPFLAGS)
+compile.cc  = $(_quiet.cxx)$(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.cpp = $(_quiet.cxx)$(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.d   = $(_quiet.gdc)$(GDC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_DFLAGS) $(PROJECT_CPPFLAGS) $(DFLAGS)
+compile.m   = $(_quiet.objc)$(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(CPPFLAGS)
+compile.mm  = $(_quiet.objcxx)$(CXX) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.f   = $(_quiet.fc)$(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_FFLAGS) $(PROJECT_CPPFLAGS) $(FFLAGS)
+compile.f90 = $(_quiet.fc)$(FC) -c -o $@ $< -cpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_FFLAGS) $(PROJECT_CPPFLAGS) $(FFLAGS)
+compile.S   = $(_quiet.as)$(CC) -c -o $@ $< -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(ASFLAGS) $(CPPFLAGS)
+compile.asm = $(_quiet.nasm)$(NASM) -f $(NASM_FMT) -o $@ $(NASMFLAGS) $<
+compile.pas = $(_quiet.fpc)$(FPC) -Cn -FE$(@D) -FU$(@D) $(FPCFLAGS) $< $(_fpc_redir)
+compile.mod = $(_quiet.gm2)$(GM2) -c -o $@ $< -fcpp -MMD -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_GM2FLAGS) $(PROJECT_CPPFLAGS) $(GM2FLAGS)
 
 # Compilation database (compile_commands.json) support.
 # Extensions whose compile commands use GCC-style "-c -o" invocation and
@@ -822,7 +865,7 @@ show-% :
 	@echo ${$*}
 
 # Create directories
-%/ : ; $(MKDIR_P) $@
+%/ : ; $(_Q)$(MKDIR_P) $@
 .PRECIOUS : %/
 
 # Per-library rules: compile objects and pack into a static archive.
