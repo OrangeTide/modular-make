@@ -91,6 +91,7 @@ myapp_SRCS = main.c accel.S utils.cpp
 | `<name>_EXTRA_OBJS` | Additional pre-built `.o` files to link (not compiled or cleaned by this build system) |
 | `<name>_LDFLAGS` | Linker flags (executables and shared libs) |
 | `<name>_LDLIBS` | Link libraries (executables and shared libs, e.g. `-lm`) |
+| `<name>_PKGS` | External packages, resolved to `--cflags`/`--libs` via the built-in table or `pkg-config` (e.g. `sdl3 gl m`) |
 | `<name>_EXEC` | Set automatically -- full output path for executables |
 | `<name>_LIBS` | Library dependencies (resolved transitively; works on libraries too) |
 | `<name>_EXPORTED_CPPFLAGS` | Preprocessor flags exported to dependents (e.g. `-I`) |
@@ -185,7 +186,7 @@ minmax_LDLIBS.Linux   = -lm -ldl
 minmax_CFLAGS.Linux.x86_64 = -msse4.2
 ```
 
-The supported suffixed variables are: `_SRCS`, `_LIBS`, `_EXTRA_OBJS`, and all per-target compiler/linker flag variables (`_CFLAGS`, `_CXXFLAGS`, `_CPPFLAGS`, `_LDFLAGS`, `_LDLIBS`, `_ASFLAGS`, `_DFLAGS`, `_FFLAGS`, `_NASMFLAGS`, `_FPCFLAGS`, `_GM2FLAGS`, and the `_EXPORTED_*` variants).
+The supported suffixed variables are: `_SRCS`, `_LIBS`, `_PKGS`, `_EXTRA_OBJS`, and all per-target compiler/linker flag variables (`_CFLAGS`, `_CXXFLAGS`, `_CPPFLAGS`, `_LDFLAGS`, `_LDLIBS`, `_ASFLAGS`, `_DFLAGS`, `_FFLAGS`, `_NASMFLAGS`, `_FPCFLAGS`, `_GM2FLAGS`, and the `_EXPORTED_*` variants).
 
 ### Conditional Compiler Detection
 
@@ -215,32 +216,50 @@ And guard the corresponding C code with the exported define:
 #endif
 ```
 
-### Using pkg-config
+### External Packages (`_PKGS`)
 
-On Linux (and other systems with `pkg-config`), let it supply the compiler
-and linker flags for an installed library instead of hardcoding them. Use
-`$(shell ...)` to expand the flags when the `module.mk` is read:
+List external libraries a target needs in `<name>_PKGS`. Each token is
+resolved once to compile and link flags, folded into the target's
+`CPPFLAGS` (`--cflags`) and `LDLIBS` (`--libs`):
 
 ```makefile
-# executable linked against SDL3 via pkg-config
+# executable linked against SDL3 and the math and OpenGL libraries
 EXECUTABLES  += game
 game_DIR      := $(dir $(lastword $(MAKEFILE_LIST)))
 game_SRCS     = game.c
-game_CFLAGS   = $(shell pkg-config --cflags sdl3)
-game_LDLIBS   = $(shell pkg-config --libs sdl3)
+game_PKGS     = sdl3 gl m
 ```
 
-Scope the flags to platforms that have `pkg-config` with a suffix, and guard
-the whole target on the library being present:
+A token is resolved one of two ways:
+
+- If it is in `KNOWN_PKGS`, its flags come from the built-in table
+  (`PKG_<token>_CFLAGS` / `PKG_<token>_LDLIBS`, platform suffixes
+  supported). No `pkg-config` is invoked, so these work on systems
+  without it (e.g. macOS, Windows).
+- Otherwise it is passed to `pkg-config --cflags/--libs <token>`.
+
+The built-in table is limited to stable, path-free system libraries:
+
+| Token | Purpose | Linux | macOS | Windows |
+|-------|---------|-------|-------|---------|
+| `m` | Math library | `-lm` | (in libSystem) | (in CRT) |
+| `gl` | OpenGL | `-lGL` | `-framework OpenGL` | `-lopengl32` |
+| `dl` | Dynamic loader | `-ldl` | (in libSystem) | |
+| `rt` | Realtime/clock | `-lrt` | (in libSystem) | |
+| `pthread` | POSIX threads | `-lpthread` | (in libSystem) | |
+
+`_PKGS` accepts the same `.<os>`, `.<arch>`, and `.CONFIG_*` suffixes as
+the other per-target variables, and package link flags declared on a
+library propagate to any executable that links it.
+
+To add a package to the table, or override an entry for one platform,
+extend it from a `module.mk`:
 
 ```makefile
-ifeq ($(shell pkg-config --exists sdl3 && echo yes),yes)
-EXECUTABLES  += game
-game_DIR      := $(dir $(lastword $(MAKEFILE_LIST)))
-game_SRCS     = game.c
-game_CFLAGS.Linux = $(shell pkg-config --cflags sdl3)
-game_LDLIBS.Linux = $(shell pkg-config --libs sdl3)
-endif
+KNOWN_PKGS += glfw3
+PKG_glfw3_LDLIBS.Linux      = -lglfw
+PKG_glfw3_LDLIBS.Darwin     = -lglfw -framework Cocoa -framework IOKit
+PKG_glfw3_LDLIBS.Windows_NT = -lglfw3
 ```
 
 ### Test Commands

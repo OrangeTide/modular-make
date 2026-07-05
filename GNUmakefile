@@ -1,5 +1,5 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.5.0]
-# updated: 01 May 2026
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.6.0]
+# updated: 05 Jul 2026
 # Requires GNU Make 4.0 or later (uses $(file) function).
 #
 # ============================================================================
@@ -144,12 +144,17 @@
 #     mylib_LDLIBS.Linux = -lm -ldl
 #     mylib_CFLAGS.Linux.x86_64 = -msse4.2
 #
-#   On Linux (or anywhere pkg-config is available), let pkg-config
-#   supply the flags for an installed library instead of hardcoding
-#   them.  Expand the flags with $(shell ...):
+#   <name>_PKGS      External packages (executables and shared libs).
+#                     Each token is resolved once to compile/link flags
+#                     and folded into the target's CPPFLAGS (--cflags)
+#                     and LDLIBS (--libs).  A token in KNOWN_PKGS uses
+#                     the built-in PKG_<token>_* table (works without
+#                     pkg-config, e.g. on macOS/Windows); any other
+#                     token goes through `pkg-config <token>`.  Package
+#                     link flags on a library propagate to executables
+#                     that link it.
 #
-#     game_CFLAGS.Linux = $(shell pkg-config --cflags sdl3)
-#     game_LDLIBS.Linux = $(shell pkg-config --libs sdl3)
+#     game_PKGS = sdl3 gl m
 #
 #   <name>_TESTCMD   Shell commands to test the target, written with
 #                     define/endef.  Each line runs as a separate
@@ -570,6 +575,29 @@ endif
 # PROJECT_FFLAGS :=
 # PROJECT_GM2FLAGS :=
 
+# Package flags (<name>_PKGS).  A target lists package tokens in _PKGS;
+# each token is resolved to compile and link flags once and folded into
+# the target's CPPFLAGS (--cflags) and LDLIBS (--libs).  Resolution:
+#
+#   * A token in KNOWN_PKGS uses the built-in PKG_<token>_CFLAGS /
+#     PKG_<token>_LDLIBS table below (platform suffixes supported).  No
+#     pkg-config is invoked, so these work on systems without it.
+#   * Any other token is passed to `pkg-config --cflags/--libs <token>`.
+#
+# The table is deliberately limited to stable, path-free system libraries.
+# Extend it from a module.mk by appending to KNOWN_PKGS and defining the
+# matching PKG_<token>_LDLIBS (and PKG_<token>_CFLAGS if needed); a plain
+# assignment there overrides the defaults below.
+KNOWN_PKGS ?= m gl dl rt pthread
+
+PKG_m_LDLIBS.Linux        ?= -lm
+PKG_gl_LDLIBS.Linux       ?= -lGL
+PKG_gl_LDLIBS.Darwin      ?= -framework OpenGL
+PKG_gl_LDLIBS.Windows_NT  ?= -lopengl32
+PKG_dl_LDLIBS.Linux       ?= -ldl
+PKG_rt_LDLIBS.Linux       ?= -lrt
+PKG_pthread_LDLIBS.Linux  ?= -lpthread
+
 # Set .RECIPEPREFIX explicitly so $(.RECIPEPREFIX) can be referenced
 .RECIPEPREFIX :=	
 
@@ -748,7 +776,7 @@ _target_platform_suffixes = .$(_TARGET_OS) .$(_TARGET_ARCH) .$(_TARGET_OS).$(_TA
 _merge_one = $(foreach s,$2,$(eval $1_$3 += $($1_$3$s)))
 
 _platform_vars = SRCS GENERATED_SRCS CFLAGS CXXFLAGS CPPFLAGS LDFLAGS LDLIBS \
-  ASFLAGS DFLAGS FFLAGS NASMFLAGS FPCFLAGS GM2FLAGS EXTRA_OBJS LIBS \
+  ASFLAGS DFLAGS FFLAGS NASMFLAGS FPCFLAGS GM2FLAGS EXTRA_OBJS LIBS PKGS \
   EXPORTED_CPPFLAGS EXPORTED_CFLAGS EXPORTED_CXXFLAGS EXPORTED_LDFLAGS EXPORTED_LDLIBS
 
 define _merge_platform_vars
@@ -766,6 +794,38 @@ $(foreach t,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(eval $(call _merge_plat
 
 # Inject -DCONFIG_FOO=1 for every enabled option.
 PROJECT_CPPFLAGS += $(foreach c,$(filter CONFIG_%,$(.VARIABLES)),$(if $(filter y,$($c)),-D$c=1))
+
+### Package (PKGS) resolution ###
+
+# Merge platform suffixes into the built-in package table (PKG_<t>_CFLAGS,
+# PKG_<t>_LDLIBS), the same append mechanism used for per-target vars.
+$(foreach t,$(KNOWN_PKGS),$(foreach V,CFLAGS LDLIBS,\
+  $(call _merge_one,PKG_$t,$(_target_platform_suffixes),$V)))
+
+# Resolve every package token referenced by any target exactly once, into
+# cached _pkg_cflags_<t> / _pkg_ldlibs_<t> variables.  Known tokens use the
+# table; unknown tokens fall back to pkg-config.
+_have_pkgconfig := $(shell command -v pkg-config 2>/dev/null)
+_referenced_pkgs = $(sort $(foreach t,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$($t_PKGS)))
+define _resolve_pkg
+ifneq ($(filter $1,$(KNOWN_PKGS)),)
+_pkg_cflags_$1 := $(PKG_$1_CFLAGS)
+_pkg_ldlibs_$1 := $(PKG_$1_LDLIBS)
+else ifeq ($(_have_pkgconfig),)
+$$(warning PKGS: pkg-config not found, cannot resolve '$1' (add it to KNOWN_PKGS with a PKG_$1_LDLIBS entry))
+else
+_pkg_cflags_$1 := $$(shell pkg-config --cflags $1)
+_pkg_ldlibs_$1 := $$(shell pkg-config --libs $1)
+endif
+endef
+$(foreach p,$(_referenced_pkgs),$(eval $(call _resolve_pkg,$p)))
+
+# get_pkgs_cflags: compile flags for a target's own packages (its objects).
+# get_pkgs_ldlibs: link flags for a target's packages plus those of every
+# transitive _LIBS dependency (a static lib's package libs must reach the
+# final link line, like EXPORTED_LDLIBS).
+get_pkgs_cflags = $(strip $(foreach p,$($1_PKGS),$(_pkg_cflags_$p)))
+get_pkgs_ldlibs = $(strip $(foreach p,$(sort $($1_PKGS) $(foreach L,$(call get_all_libs,$1),$($L_PKGS))),$(_pkg_ldlibs_$p)))
 
 ### Rules ###
 
@@ -882,7 +942,7 @@ $(call get_lib,$1) : $$(call get_all_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$($1
 	$$(link.a)
 $(call get_all_objs,$1) : CFLAGS=$$($1_CFLAGS) $(call get_exported_cflags,$1)
 $(call get_all_objs,$1) : CXXFLAGS=$$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
-$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
+$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1) $(call get_pkgs_cflags,$1)
 $(call get_all_objs,$1) : DFLAGS=$$($1_DFLAGS)
 $(call get_all_objs,$1) : FFLAGS=$$($1_FFLAGS)
 $(call get_all_objs,$1) : ASFLAGS=$$($1_ASFLAGS)
@@ -902,10 +962,10 @@ $(call get_so,$1) : $$(call get_all_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$($1_
 	$$(link.so)
 $(call get_so,$1) : CXX_MODE=$(if $(call needs_cxx,$1),1)
 $(call get_so,$1) : LDFLAGS=$$($1_LDFLAGS) $(call get_exported_ldflags,$1)
-$(call get_so,$1) : LDLIBS=$$($1_LDLIBS) $(call get_exported_ldlibs,$1)
+$(call get_so,$1) : LDLIBS=$$($1_LDLIBS) $(call get_exported_ldlibs,$1) $(call get_pkgs_ldlibs,$1)
 $(call get_all_objs,$1) : CFLAGS=-fPIC $$($1_CFLAGS) $(call get_exported_cflags,$1)
 $(call get_all_objs,$1) : CXXFLAGS=-fPIC $$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
-$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
+$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1) $(call get_pkgs_cflags,$1)
 $(call get_all_objs,$1) : DFLAGS=-fPIC $$($1_DFLAGS)
 $(call get_all_objs,$1) : FFLAGS=-fPIC $$($1_FFLAGS)
 $(call get_all_objs,$1) : ASFLAGS=-fPIC $$($1_ASFLAGS)
@@ -931,10 +991,10 @@ $(BINDIR)/$1$(EXTENSION.exe) : $$(call get_all_objs,$1) $$($1_EXTRA_OBJS) $(fore
 	$$(_split_debug)
 $(BINDIR)/$1$(EXTENSION.exe) : CXX_MODE=$(if $(call needs_cxx,$1),1)
 $(BINDIR)/$1$(EXTENSION.exe) : LDFLAGS=$$($1_LDFLAGS) $(call get_exported_ldflags,$1)
-$(BINDIR)/$1$(EXTENSION.exe) : LDLIBS=$$($1_LDLIBS) $(call get_exported_ldlibs,$1)
+$(BINDIR)/$1$(EXTENSION.exe) : LDLIBS=$$($1_LDLIBS) $(call get_exported_ldlibs,$1) $(call get_pkgs_ldlibs,$1)
 $(call get_all_objs,$1) : CFLAGS=$$($1_CFLAGS) $(call get_exported_cflags,$1)
 $(call get_all_objs,$1) : CXXFLAGS=$$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
-$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1)
+$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1) $(call get_pkgs_cflags,$1)
 $(call get_all_objs,$1) : DFLAGS=$$($1_DFLAGS)
 $(call get_all_objs,$1) : FFLAGS=$$($1_FFLAGS)
 $(call get_all_objs,$1) : ASFLAGS=$$($1_ASFLAGS)

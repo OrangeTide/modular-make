@@ -50,6 +50,10 @@ run_test "platapp runs" _out/*/bin/platapp
 run_test "platapp: arch-specific source linked (plat_has_arch=1)" sh -c '_out/*/bin/platapp | grep -q "plat_has_arch=1"'
 run_test "platapp: OS name set via _CPPFLAGS.<os>" sh -c '_out/*/bin/platapp | grep -q "plat_os_name=$(uname -s)"'
 
+printf "\n=== packages (_PKGS) ===\n"
+run_test "pkgapp runs (linked libm via _PKGS=m)" _out/*/bin/pkgapp
+run_test "pkgapp: math result correct (pkg_sqrt=3)" sh -c '_out/*/bin/pkgapp | grep -q "pkg_sqrt=3"'
+
 printf "\n=== clean ===\n"
 run_test "make clean" $MAKE clean $EXTRA
 run_test "binaries removed" sh -c '! test -f _out/*/bin/app'

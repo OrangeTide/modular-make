@@ -38,3 +38,16 @@ $(platapp_RUN)
 $(platapp_RUN) | grep -q "plat_has_arch=1"
 endef
 TEST_TARGETS += platapp
+
+# pkgapp: C executable linked against the math library via _PKGS.
+# Tests: _PKGS resolution through the built-in KNOWN_PKGS table (no
+# pkg-config needed) and that the resulting -lm reaches the link line.
+EXECUTABLES += pkgapp
+pkgapp_DIR  := $(ROOT)
+pkgapp_SRCS  = pkgmain.c
+pkgapp_PKGS  = m
+define pkgapp_TESTCMD
+$(pkgapp_RUN)
+$(pkgapp_RUN) | grep -q "pkg_sqrt=3"
+endef
+TEST_TARGETS += pkgapp
