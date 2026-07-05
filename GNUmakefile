@@ -144,6 +144,13 @@
 #     mylib_LDLIBS.Linux = -lm -ldl
 #     mylib_CFLAGS.Linux.x86_64 = -msse4.2
 #
+#   On Linux (or anywhere pkg-config is available), let pkg-config
+#   supply the flags for an installed library instead of hardcoding
+#   them.  Expand the flags with $(shell ...):
+#
+#     game_CFLAGS.Linux = $(shell pkg-config --cflags sdl3)
+#     game_LDLIBS.Linux = $(shell pkg-config --libs sdl3)
+#
 #   <name>_TESTCMD   Shell commands to test the target, written with
 #                     define/endef.  Each line runs as a separate
 #                     shell command; if any fails, make stops.

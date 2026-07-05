@@ -215,6 +215,34 @@ And guard the corresponding C code with the exported define:
 #endif
 ```
 
+### Using pkg-config
+
+On Linux (and other systems with `pkg-config`), let it supply the compiler
+and linker flags for an installed library instead of hardcoding them. Use
+`$(shell ...)` to expand the flags when the `module.mk` is read:
+
+```makefile
+# executable linked against SDL3 via pkg-config
+EXECUTABLES  += game
+game_DIR      := $(dir $(lastword $(MAKEFILE_LIST)))
+game_SRCS     = game.c
+game_CFLAGS   = $(shell pkg-config --cflags sdl3)
+game_LDLIBS   = $(shell pkg-config --libs sdl3)
+```
+
+Scope the flags to platforms that have `pkg-config` with a suffix, and guard
+the whole target on the library being present:
+
+```makefile
+ifeq ($(shell pkg-config --exists sdl3 && echo yes),yes)
+EXECUTABLES  += game
+game_DIR      := $(dir $(lastword $(MAKEFILE_LIST)))
+game_SRCS     = game.c
+game_CFLAGS.Linux = $(shell pkg-config --cflags sdl3)
+game_LDLIBS.Linux = $(shell pkg-config --libs sdl3)
+endif
+```
+
 ### Test Commands
 
 Define test commands with `define`/`endef` and register the target:
