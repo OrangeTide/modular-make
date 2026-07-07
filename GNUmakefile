@@ -80,6 +80,31 @@
 # _DIR (the build system prepends _DIR automatically).  Wildcards are
 # supported (e.g. *.c), expanded via $(wildcard).
 #
+# IMPORTANT -- always reference the per-target <name>_DIR (assigned with
+# := so it is frozen at include time), never a shared variable, when a
+# value is expanded lazily.  A common convention is:
+#
+#   ROOT := $(dir $(lastword $(MAKEFILE_LIST)))
+#   foo_DIR := $(ROOT)
+#
+# That is safe only because foo_DIR captures ROOT immediately with :=.
+# The shared ROOT itself is reassigned by every module.mk, so the last
+# one included wins.  Any lazy (=) reference to $(ROOT) reads that final
+# value, not the one from your module.  This bites two places in
+# particular:
+#
+#   foo_EXPORTED_CPPFLAGS = -I$(ROOT)          # WRONG -- resolves late
+#   foo_EXPORTED_CPPFLAGS = -I$(foo_DIR)       # right -- frozen per target
+#
+# and generation recipes, whose prerequisites and commands also expand
+# late:
+#
+#   $(BUILDDIR)/$(ROOT)msg.c : $(ROOT)msg.idl       # WRONG
+#   $(BUILDDIR)/$(foo_DIR)msg.c : $(foo_DIR)msg.idl # right
+#
+# A single-directory project never exposes this because there is only
+# one ROOT; it surfaces only once a second module.mk reassigns it.
+#
 # Sources may use any supported extension (.c, .cc, .cpp, .d, .m, .mm,
 # .f, .f90, .S, .asm, .pas, .mod) and can be freely mixed:
 #

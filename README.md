@@ -75,6 +75,21 @@ Source paths in `_SRCS` are relative to `_DIR`. Wildcards are supported (e.g. `*
 myapp_SRCS = main.c accel.S utils.cpp
 ```
 
+> **Always reference `<name>_DIR`, never a shared variable, in any value that
+> expands lazily** (exported flags, generation recipes). A common convention is
+> `ROOT := $(dir $(lastword $(MAKEFILE_LIST)))` followed by `foo_DIR := $(ROOT)`.
+> That is safe only because `foo_DIR` freezes `ROOT` immediately with `:=`. The
+> shared `ROOT` is reassigned by every `module.mk`, so a lazy (`=`) reference
+> reads whichever one was included last:
+>
+> ```makefile
+> foo_EXPORTED_CPPFLAGS = -I$(ROOT)      # WRONG -- resolves late, wrong dir
+> foo_EXPORTED_CPPFLAGS = -I$(foo_DIR)   # right -- frozen per target
+> ```
+>
+> A single-directory project never exposes this; it surfaces only once a second
+> `module.mk` reassigns `ROOT`.
+
 ### Per-Target Variables
 
 | Variable | Description |
