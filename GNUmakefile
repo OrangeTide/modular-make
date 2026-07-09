@@ -1,5 +1,5 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.6.1]
-# updated: 07 Jul 2026
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.6.2]
+# updated: 09 Jul 2026
 # Requires GNU Make 4.0 or later (uses $(file) function).
 #
 # ============================================================================
@@ -876,13 +876,19 @@ get_lib_file = $(if $(filter $1,$(LIBRARIES)),$(call get_lib,$1),$(call get_so,$
 # get_all_libs($1) returns all direct and indirect _LIBS for target $1,
 # in topological order (dependents before dependencies) so that the
 # linker resolves symbols correctly with static archives.
-_expand_libs = $(if $1,$(eval _libs_depth += x)$(if $(word 100,$(_libs_depth)),$(error circular _LIBS dependency detected: $1))$(foreach L,$1,$L $(call _expand_libs,$($L_LIBS))))
+# _expand_libs(list,ancestors) walks direct and indirect _LIBS depth-first.
+# A true cycle is a lib that reappears in its own ancestor chain ($2); a lib
+# shared by sibling branches (a diamond) is not a cycle and must not error.
+# The path is threaded as an argument rather than kept in a mutable global,
+# so there is no arbitrary depth cap and the logic is portable across make
+# versions (including the GNU Make 3.81 shipped on macOS).
+_expand_libs = $(foreach L,$1,$(if $(filter $L,$2),$(error circular _LIBS dependency detected: $L (via$2)),$L $(call _expand_libs,$($L_LIBS),$2 $L)))
 # _uniq_last: keep last occurrence of each word (preserves topological order
 # so that dependencies appear after their dependents for static linking).
 _rev = $(if $1,$(call _rev,$(wordlist 2,$(words $1),$1)) $(firstword $1))
 _uniq_first = $(if $1,$(firstword $1) $(call _uniq_first,$(filter-out $(firstword $1),$1)))
 _uniq_last = $(call _rev,$(call _uniq_first,$(call _rev,$1)))
-get_all_libs = $(eval _libs_depth :=)$(call _uniq_last,$(call _expand_libs,$($1_LIBS)))
+get_all_libs = $(call _uniq_last,$(call _expand_libs,$($1_LIBS)))
 
 # Collect exported flags from all transitive _LIBS dependencies.
 get_exported_cppflags = $(strip $(foreach L,$(call get_all_libs,$1),$($L_EXPORTED_CPPFLAGS)))

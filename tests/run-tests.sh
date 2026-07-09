@@ -37,6 +37,10 @@ run_test "app runs" _out/*/bin/app
 run_test "cxxapp runs" _out/*/bin/cxxapp
 run_test "app: foo transitive dep (foo_val=42)" sh -c '_out/*/bin/app | grep -q "foo_val=42"'
 run_test "app: baz C++ lib (baz_val=99)" sh -c '_out/*/bin/app | grep -q "baz_val=99"'
+# Diamond _LIBS: app -> foo -> bar and app -> baz -> bar. Building and running
+# proves bar is not misreported as a circular dependency and is linked once,
+# ordered after both foo and baz. baz_val() calls bar_val() (41 + 58 == 99).
+run_test "app: diamond dep bar shared by foo and baz" sh -c '_out/*/bin/app | grep -q "baz_val=99"'
 run_test "app: extra from defconfig (label=bonus)" sh -c '_out/*/bin/app | grep -q "extra: label=bonus"'
 run_test "cxxapp: foo transitive dep (foo_val=42)" sh -c '_out/*/bin/cxxapp | grep -q "foo_val=42"'
 
