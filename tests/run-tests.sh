@@ -58,6 +58,18 @@ printf "\n=== packages (_PKGS) ===\n"
 run_test "pkgapp runs (linked libm via _PKGS=m)" _out/*/bin/pkgapp
 run_test "pkgapp: math result correct (pkg_sqrt=3)" sh -c '_out/*/bin/pkgapp | grep -q "pkg_sqrt=3"'
 
+printf "\n=== generated headers (_GENERATED_HDRS) ===\n"
+run_test "genapp runs (clean-build ordering)" _out/*/bin/genapp
+run_test "genapp: generated .c + .h linked (gen_value=7 tag=7)" sh -c '_out/*/bin/genapp | grep -q "gen_value=7 tag=7"'
+# Rebuild-on-change: edit the generator input; the new value must flow through
+# both the generated .c (gen_value) and the generated .h (tag) into the consumer.
+cp src/libgen/gen.in src/libgen/gen.in.bak
+printf '55\n' > src/libgen/gen.in
+$MAKE genapp $EXTRA >/dev/null 2>&1
+run_test "genapp rebuilds when generated header changes (gen_value=55 tag=55)" sh -c '_out/*/bin/genapp | grep -q "gen_value=55 tag=55"'
+mv src/libgen/gen.in.bak src/libgen/gen.in
+$MAKE genapp $EXTRA >/dev/null 2>&1
+
 printf "\n=== clean ===\n"
 run_test "make clean" $MAKE clean $EXTRA
 run_test "binaries removed" sh -c '! test -f _out/*/bin/app'

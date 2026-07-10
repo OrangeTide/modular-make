@@ -103,6 +103,8 @@ myapp_SRCS = main.c accel.S utils.cpp
 | `<name>_NASMFLAGS` | NASM flags (`.asm` files) |
 | `<name>_FPCFLAGS` | Free Pascal flags (`.pas` files) |
 | `<name>_GM2FLAGS` | GCC Modula-2 flags (`.mod` files) |
+| `<name>_GENERATED_SRCS` | Source files produced by a code generator; compiled from `_build/<triplet>/` instead of the source tree (see [Generated Sources and Headers](#generated-sources-and-headers)) |
+| `<name>_GENERATED_HDRS` | Header files produced by a code generator; placed in `_build/<triplet>/`, ordered ahead of consumers and put on their include path automatically |
 | `<name>_EXTRA_OBJS` | Additional pre-built `.o` files to link (not compiled or cleaned by this build system) |
 | `<name>_LDFLAGS` | Linker flags (executables and shared libs) |
 | `<name>_LDLIBS` | Link libraries (executables and shared libs, e.g. `-lm`) |
@@ -276,6 +278,52 @@ PKG_glfw3_LDLIBS.Linux      = -lglfw
 PKG_glfw3_LDLIBS.Darwin     = -lglfw -framework Cocoa -framework IOKit
 PKG_glfw3_LDLIBS.Windows_NT = -lglfw3
 ```
+
+### Generated Sources and Headers
+
+Code generators (an IDL compiler, `bin2c`, a shader packer) produce `.c` and
+`.h` files. List them in `<name>_GENERATED_SRCS` and `<name>_GENERATED_HDRS`
+and they are placed under `_build/<triplet>/` instead of being dropped in the
+source tree. Paths are relative to `<name>_DIR`. You still write the rule that
+runs the generator.
+
+```makefile
+LIBRARIES += proto
+proto_DIR  := $(dir $(lastword $(MAKEFILE_LIST)))
+proto_GENERATED_SRCS = proto.c
+proto_GENERATED_HDRS = proto.h
+
+# GNU Make 4.3+: one recipe, both outputs (a grouped target with &:).
+$(BUILDDIR)/$(proto_DIR)proto.c $(BUILDDIR)/$(proto_DIR)proto.h &: $(proto_DIR)proto.idl
+	my-idl-codegen $< -o $(BUILDDIR)/$(proto_DIR)
+```
+
+Declaring a header in `_GENERATED_HDRS` makes the build system, for that target
+and every target that lists it in `_LIBS` (transitively):
+
+- **order** the header ahead of any object that may `#include` it, so a clean
+  parallel build never compiles a consumer before the header exists;
+- **find** it: the header's build directory goes on the include path
+  automatically, so consumers write `#include "proto.h"` with no manual `-I`;
+- **rebuild** consumers when it changes (via the `.dep` files); and
+- **clean** it.
+
+This replaces the hand-written `-I$(BUILDDIR)/...` flags and
+`obj : | generated.h` order-only prerequisites these generators used to
+require. Change detection needs make to notice the header's new timestamp, so
+the generation rule must give the header a recipe: use a grouped target
+(`&:`, GNU Make 4.3+) as above, or on GNU Make 4.0-4.2 give each output its own
+recipe:
+
+```makefile
+$(BUILDDIR)/$(proto_DIR)proto.c : $(proto_DIR)proto.idl
+	my-idl-codegen $< -o $(BUILDDIR)/$(proto_DIR)
+$(BUILDDIR)/$(proto_DIR)proto.h : $(BUILDDIR)/$(proto_DIR)proto.c ; @touch -c $@
+```
+
+A bare `proto.h : proto.c` with no recipe will not rebuild consumers when only
+the header changes, because make never re-stats a target it did not run a
+recipe for.
 
 ### Test Commands
 

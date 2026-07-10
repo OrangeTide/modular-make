@@ -1,5 +1,5 @@
 ROOT := $(dir $(lastword $(MAKEFILE_LIST)))
-SUBDIRS = libfoo libbar libbaz libplat
+SUBDIRS = libfoo libbar libbaz libplat libgen
 
 # app: C executable, depends on foo (transitive -> bar), and baz (C++ lib).
 # Tests: transitive _LIBS, EXPORTED_CPPFLAGS, CXX_MODE auto-detection.
@@ -38,6 +38,21 @@ $(platapp_RUN)
 $(platapp_RUN) | grep -q "plat_has_arch=1"
 endef
 TEST_TARGETS += platapp
+
+# genapp: exercises _GENERATED_HDRS. The gen lib emits gen.c + gen.h into the
+# build tree; genapp includes the generated gen.h (found via the automatic -I)
+# and links the generated gen.c. Tests clean-build ordering across a module
+# boundary, generated-header discovery, and rebuild when the generator input
+# changes. No -I or order-only prerequisite appears here.
+EXECUTABLES += genapp
+genapp_DIR  := $(ROOT)
+genapp_SRCS  = genmain.c
+genapp_LIBS  = gen
+define genapp_TESTCMD
+$(genapp_RUN)
+$(genapp_RUN) | grep -q "gen_value=7 tag=7"
+endef
+TEST_TARGETS += genapp
 
 # pkgapp: C executable linked against the math library via _PKGS.
 # Tests: _PKGS resolution through the built-in KNOWN_PKGS table (no

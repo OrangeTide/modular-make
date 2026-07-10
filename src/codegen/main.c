@@ -1,6 +1,5 @@
 #include <stdio.h>
-
-extern const char *version_info;
+#include "version_info.h"	/* generated into _build, found via automatic -I */
 
 int main(void)
 {
