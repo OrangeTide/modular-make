@@ -1,6 +1,7 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.7.0]
-# updated: 09 Jul 2026
-# Requires GNU Make 4.0 or later (uses $(file) function).
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.7.1]
+# updated: 17 Jul 2026
+# Requires GNU Make 3.81 or later.  compile_commands.json needs the $(file)
+# function (GNU Make 4.0); it is skipped on 3.81.
 #
 # ============================================================================
 # OVERVIEW
@@ -500,12 +501,14 @@
 # ============================================================================
 
 # --- Minimum supported GNU Make ----------------------------------------------
-# modular-make uses the $(file) function (config.h and the compile_commands.json
-# sidecars), which requires GNU Make 4.0.  Fail early with a clear message
-# rather than emitting confusing errors deeper in the build.  filter-out keeps
-# this correct for any future major version >= 4 (and >= 10).
-ifeq ($(filter-out 0 1 2 3,$(firstword $(subst ., ,$(MAKE_VERSION)))),)
-$(error modular-make requires GNU Make 4.0 or later, but this is GNU Make "$(MAKE_VERSION)".  Please upgrade.)
+# modular-make needs order-only prerequisites, which require GNU Make 3.81
+# (the version shipped on macOS).  Fail early on anything older with a clear
+# message rather than emitting confusing errors deeper in the build.
+# The compile_commands.json sidecars use the $(file) function (GNU Make 4.0);
+# on 3.81 they are silently skipped and the rest of the build works normally.
+# filter-out keeps this correct for any future major version >= 3 (and >= 10).
+ifeq ($(filter-out 0 1 2,$(firstword $(subst ., ,$(MAKE_VERSION)))),)
+$(error modular-make requires GNU Make 3.81 or later, but this is GNU Make "$(MAKE_VERSION)".  Please upgrade.)
 endif
 
 # --- Optional .env for local configuration ----------------------------------
@@ -697,21 +700,21 @@ endef
 EXTENSIONS := c cc cpp d m mm f f90 S asm pas mod
 
 # Command Macros
-link.c      = $(_quiet.ld)$(if $(CXX_MODE),$(CXX),$(CC)) -o $@ $(_BUILD_MODE_LDFLAGS) $(PROJECT_LDFLAGS) $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(PROJECT_LDLIBS) $(LDLIBS)
-link.a      = $(_quiet.ar)$(RM) $@.tmp && $(AR) $(ARFLAGS) $@.tmp $(filter %.o,$^) $(_ar_redir) && mv -f $@.tmp $@
-link.so     = $(_quiet.so)$(if $(CXX_MODE),$(CXX),$(CC)) -shared -o $@ $(_BUILD_MODE_LDFLAGS) $(PROJECT_LDFLAGS) $(LDFLAGS) $^ $(PROJECT_LDLIBS) $(LDLIBS)
-compile.c   = $(_quiet.cc)$(CC) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(CPPFLAGS)
-compile.cc  = $(_quiet.cxx)$(CXX) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.cpp = $(_quiet.cxx)$(CXX) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.d   = $(_quiet.gdc)$(GDC) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_DFLAGS) $(PROJECT_CPPFLAGS) $(DFLAGS)
-compile.m   = $(_quiet.objc)$(CC) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(CPPFLAGS)
-compile.mm  = $(_quiet.objcxx)$(CXX) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
-compile.f   = $(_quiet.fc)$(FC) -c -o $@ $< -cpp -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_FFLAGS) $(PROJECT_CPPFLAGS) $(FFLAGS)
-compile.f90 = $(_quiet.fc)$(FC) -c -o $@ $< -cpp -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_FFLAGS) $(PROJECT_CPPFLAGS) $(FFLAGS)
-compile.S   = $(_quiet.as)$(CC) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(ASFLAGS) $(CPPFLAGS)
-compile.asm = $(_quiet.nasm)$(NASM) -f $(NASM_FMT) -o $@ $(NASMFLAGS) $<
-compile.pas = $(_quiet.fpc)$(FPC) -Cn -FE$(@D) -FU$(@D) $(FPCFLAGS) $< $(_fpc_redir)
-compile.mod = $(_quiet.gm2)$(GM2) -c -o $@ $< -fcpp -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_GM2FLAGS) $(PROJECT_CPPFLAGS) $(GM2FLAGS)
+link.c      = $(_quiet.ld)$(MKDIR_P) $(@D) && $(if $(CXX_MODE),$(CXX),$(CC)) -o $@ $(_BUILD_MODE_LDFLAGS) $(PROJECT_LDFLAGS) $(LDFLAGS) $(if $(LIBDIR),-L$(LIBDIR)) $^ $(PROJECT_LDLIBS) $(LDLIBS)
+link.a      = $(_quiet.ar)$(MKDIR_P) $(@D) && $(RM) $@.tmp && $(AR) $(ARFLAGS) $@.tmp $(filter %.o,$^) $(_ar_redir) && mv -f $@.tmp $@
+link.so     = $(_quiet.so)$(MKDIR_P) $(@D) && $(if $(CXX_MODE),$(CXX),$(CC)) -shared -o $@ $(_BUILD_MODE_LDFLAGS) $(PROJECT_LDFLAGS) $(LDFLAGS) $^ $(PROJECT_LDLIBS) $(LDLIBS)
+compile.c   = $(_quiet.cc)$(MKDIR_P) $(@D) && $(CC) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(CPPFLAGS)
+compile.cc  = $(_quiet.cxx)$(MKDIR_P) $(@D) && $(CXX) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.cpp = $(_quiet.cxx)$(MKDIR_P) $(@D) && $(CXX) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.d   = $(_quiet.gdc)$(MKDIR_P) $(@D) && $(GDC) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_DFLAGS) $(PROJECT_CPPFLAGS) $(DFLAGS)
+compile.m   = $(_quiet.objc)$(MKDIR_P) $(@D) && $(CC) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) $(CPPFLAGS)
+compile.mm  = $(_quiet.objcxx)$(MKDIR_P) $(@D) && $(CXX) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CXXFLAGS) $(PROJECT_CPPFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+compile.f   = $(_quiet.fc)$(MKDIR_P) $(@D) && $(FC) -c -o $@ $< -cpp -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_FFLAGS) $(PROJECT_CPPFLAGS) $(FFLAGS)
+compile.f90 = $(_quiet.fc)$(MKDIR_P) $(@D) && $(FC) -c -o $@ $< -cpp -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_FFLAGS) $(PROJECT_CPPFLAGS) $(FFLAGS)
+compile.S   = $(_quiet.as)$(MKDIR_P) $(@D) && $(CC) -c -o $@ $< -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_CFLAGS) $(PROJECT_CPPFLAGS) $(ASFLAGS) $(CPPFLAGS)
+compile.asm = $(_quiet.nasm)$(MKDIR_P) $(@D) && $(NASM) -f $(NASM_FMT) -o $@ $(NASMFLAGS) $<
+compile.pas = $(_quiet.fpc)$(MKDIR_P) $(@D) && $(FPC) -Cn -FE$(@D) -FU$(@D) $(FPCFLAGS) $< $(_fpc_redir)
+compile.mod = $(_quiet.gm2)$(MKDIR_P) $(@D) && $(GM2) -c -o $@ $< -fcpp -MMD -MP -MF $(@:.o=.dep) $(_BUILD_MODE_CFLAGS) $(_BUILD_MODE_CPPFLAGS) $(PROJECT_GM2FLAGS) $(PROJECT_CPPFLAGS) $(GM2FLAGS)
 
 # Compilation database (compile_commands.json) support.
 # Extensions whose compile commands use GCC-style "-c -o" invocation and
@@ -975,20 +978,19 @@ get_exported_ldlibs   = $(strip $(foreach L,$(call get_all_libs,$1),$($L_EXPORTE
 # needs_cxx: true if target $1 or any transitive dep has C++/Obj-C++ sources
 needs_cxx = $(or $(filter %.cc %.cpp %.mm,$(call get_srcs,$1) $(call get_gen_srcs,$1)),$(strip $(foreach L,$(call get_all_libs,$1),$(filter %.cc %.cpp %.mm,$(call get_srcs,$L) $(call get_gen_srcs,$L)))))
 
-# _all_dirs: every directory that contains a build artifact (used by clean-all)
-_all_dirs = $(sort $(dir \
-  $(foreach p,$(EXECUTABLES),$(BINDIR)/$p$(EXTENSION.exe) $(call get_all_objs,$p) $(call get_gen_hdrs,$p)) \
-  $(foreach l,$(LIBRARIES),$(call get_lib,$l) $(call get_all_objs,$l) $(call get_gen_hdrs,$l)) \
-  $(foreach s,$(SHARED_LIBS),$(call get_so,$s) $(call get_all_objs,$s) $(call get_gen_hdrs,$s))))
+# _all_dirs: every directory that contains a build artifact (used by clean-all).
+# Includes generated source and header directories so that module.mk code
+# generation rules can write into them without an order-only directory
+# prerequisite.  Pre-created at parse time because GNU Make 3.81 on macOS
+# strips trailing slashes from order-only prerequisites, so the %/ rule
+# never fires.
+_all_dirs := $(sort $(dir \
+  $(foreach p,$(EXECUTABLES),$(BINDIR)/$p$(EXTENSION.exe) $(call get_all_objs,$p) $(call get_gen_srcs,$p) $(call get_gen_hdrs,$p)) \
+  $(foreach l,$(LIBRARIES),$(call get_lib,$l) $(call get_all_objs,$l) $(call get_gen_srcs,$l) $(call get_gen_hdrs,$l)) \
+  $(foreach s,$(SHARED_LIBS),$(call get_so,$s) $(call get_all_objs,$s) $(call get_gen_srcs,$s) $(call get_gen_hdrs,$s))))
+$(if $(filter-out clean clean-all clean_%,$(or $(MAKECMDGOALS),all)),$(shell $(MKDIR_P) $(_all_dirs)))
 
 .SECONDEXPANSION:
-
-# Ensure directories exist for generated sources so that module.mk code
-# generation rules do not need order-only directory prerequisites
-# (secondary expansion is not available in module.mk files).
-_all_gen_srcs := $(foreach t,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(call get_gen_srcs,$t))
-_all_gen_hdrs := $(foreach t,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(call get_gen_hdrs,$t))
-$(_all_gen_srcs) $(_all_gen_hdrs) : | $$(@D)/
 
 all :: $$(EXECUTABLES) compile_commands.json
 clean : $$(addprefix clean_,$$(EXECUTABLES) $$(LIBRARIES) $$(SHARED_LIBS))
@@ -1004,17 +1006,20 @@ clean-all : clean
 # 'make defconfig'.
 ifeq ($(wildcard $(BUILDDIR)/config.mk),)
 ifneq ($(wildcard defconfig),)
-$(BUILDDIR)/config.mk : defconfig | $(BUILDDIR)/
+$(BUILDDIR)/config.mk : defconfig
+	@$(MKDIR_P) $(@D)
 	cp $< $@
 else
-$(BUILDDIR)/config.mk : | $(BUILDDIR)/ ; touch $@
+$(BUILDDIR)/config.mk : ; @$(MKDIR_P) $(@D) && touch $@
 endif
 endif
 
 # defconfig: reset config.mk from a template.
-defconfig : | $(BUILDDIR)/
+defconfig :
+	@$(MKDIR_P) $(BUILDDIR)
 	$(if $(wildcard defconfig),cp defconfig $(BUILDDIR)/config.mk,$(error no defconfig found))
-defconfig_% : | $(BUILDDIR)/
+defconfig_% :
+	@$(MKDIR_P) $(BUILDDIR)
 	$(if $(wildcard configs/$*.mk),cp configs/$*.mk $(BUILDDIR)/config.mk,$(error no configs/$*.mk found))
 
 # config.h: auto-generated header from config.mk.
@@ -1022,7 +1027,8 @@ defconfig_% : | $(BUILDDIR)/
 # CONFIG_BAR = n  ->  (skipped)
 # CONFIG_X = val  ->  #define CONFIG_X val
 # Uses compare-and-swap to avoid unnecessary rebuilds.
-$(BUILDDIR)/config.h : $(BUILDDIR)/config.mk | $(BUILDDIR)/
+$(BUILDDIR)/config.h : $(BUILDDIR)/config.mk
+	@$(MKDIR_P) $(@D)
 	@awk '/^[A-Za-z_][A-Za-z0-9_]*[[:space:]]*[?:]*=/ { \
 		name = $$1; \
 		value = $$0; sub(/^[^=]*=[[:space:]]*/, "", value); \
