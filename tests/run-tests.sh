@@ -135,10 +135,20 @@ $MAKE clean $EXTRA >/dev/null 2>&1
 
 printf "\n=== user flags from .env ===\n"
 # A global CFLAGS/LDFLAGS belongs to the user and must reach every target.
-# Target-specific flags append to it rather than replacing it. Set them in
+# Target-specific flags build on it rather than replacing it. Set them in
 # .env, not on the command line: a command-line variable overrides
 # target-specific assignments on its own and would pass even if the
 # target-specific rules clobbered the global value.
+#
+# .env is gitignored, so a developer may keep a real one here. Move it aside
+# and restore it on exit, however the script leaves.
+if [ -f .env ]; then mv .env .env.saved; fi
+restore_env() {
+	rm -f .env shlib/.env
+	if [ -f .env.saved ]; then mv .env.saved .env; fi
+}
+trap restore_env EXIT
+trap 'restore_env; exit 1' INT TERM
 $MAKE clean-all $EXTRA >/dev/null 2>&1
 cat > .env <<'ENV'
 CFLAGS=-DUSER_ENV_PROBE
@@ -154,6 +164,42 @@ run_test "per-target flags still applied" \
 	sh -c '_out/*/bin/app | grep -q "foo_val=42"'
 rm -f .env
 $MAKE clean-all $EXTRA >/dev/null 2>&1
+
+printf "\n=== shared library flag isolation ===\n"
+# Sub-project under shlib/: dynapp links libdyn.so, and each carries a
+# distinctive -L. Target-specific variables are inherited by prerequisites, so
+# a naive "LDFLAGS += ..." on dynapp would append dynapp's private flag to
+# libdyn.so's link line. libdyn.so would then differ depending on whether the
+# build was entered through "make dyn" or "make dynapp", with no relink when
+# switching between them.
+SHMAKE="$MAKE -C shlib"
+$SHMAKE clean-all $EXTRA >/dev/null 2>&1
+run_test "per-target LDFLAGS reaches its own shared library" \
+	sh -c "$SHMAKE V=1 dynapp $EXTRA 2>&1 | grep -q -- '-L/tmp/modular-make-lib-only'"
+run_test "per-target LDFLAGS reaches its own executable" \
+	sh -c "$SHMAKE V=1 --always-make dynapp $EXTRA 2>&1 | grep -q -- '-L/tmp/modular-make-exe-only'"
+# The negative case: grep the .so link line alone and require the executable's
+# flag to be absent from it.
+run_test "executable LDFLAGS does not leak into the shared library" \
+	sh -c "! $SHMAKE V=1 --always-make dynapp $EXTRA 2>&1 | grep -- '-shared' | grep -q -- '-L/tmp/modular-make-exe-only'"
+# Entering through the library alone must produce the same link line.
+$SHMAKE clean-all $EXTRA >/dev/null 2>&1
+so_via_lib=$($SHMAKE V=1 dyn $EXTRA 2>&1 | grep -- '-shared' || true)
+$SHMAKE clean-all $EXTRA >/dev/null 2>&1
+so_via_exe=$($SHMAKE V=1 dynapp $EXTRA 2>&1 | grep -- '-shared' || true)
+run_test "shared library link line is the same via either entry target" \
+	test "$so_via_lib" = "$so_via_exe"
+
+# The user's global LDFLAGS still reaches both, without carrying either
+# per-target value across.
+$SHMAKE clean-all $EXTRA >/dev/null 2>&1
+cat > shlib/.env <<'ENV'
+LDFLAGS=-L/tmp/modular-make-probe
+ENV
+run_test "global LDFLAGS reaches the shared library too" \
+	sh -c "$SHMAKE V=1 dynapp $EXTRA 2>&1 | grep -- '-shared' | grep -q -- '-L/tmp/modular-make-probe'"
+rm -f shlib/.env
+$SHMAKE clean-all $EXTRA >/dev/null 2>&1
 
 printf "\n=== clean-all ===\n"
 $MAKE $EXTRA >/dev/null 2>&1

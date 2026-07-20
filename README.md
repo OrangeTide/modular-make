@@ -126,6 +126,43 @@ myapp_SRCS = main.c accel.S utils.cpp
 | `SUBDIRS` | Subdirectories containing additional `module.mk` files (per-file, not per-target). When using a top-level `module.mk`, add `src` here to load `src/module.mk`. |
 | `TOP` | Absolute path to the project root (with trailing slash), available to all `module.mk` files |
 
+### Flag Scoping
+
+Compiler and linker flags come from three places, each owned by someone different:
+
+| Tier | Variables | Owner | Set in |
+|------|-----------|-------|--------|
+| User | `CFLAGS`, `CXXFLAGS`, `CPPFLAGS`, `LDFLAGS`, `LDLIBS`, ... | Whoever runs the build | `.env`, the environment, or the command line |
+| Project | `PROJECT_CFLAGS`, `PROJECT_CXXFLAGS`, `PROJECT_CPPFLAGS`, `PROJECT_LDFLAGS`, `PROJECT_LDLIBS`, `PROJECT_DFLAGS`, `PROJECT_FFLAGS`, `PROJECT_GM2FLAGS` | The project | A top-level `module.mk` |
+| Per-target | `<name>_CFLAGS`, `<name>_LDFLAGS`, and the rest of the table above | One target | The target's `module.mk` |
+
+This build system never sets the user tier. `CFLAGS=-O3` or `LDFLAGS=-static` in `.env` reaches every target.
+
+The command line behaves differently. GNU Make gives command-line variables priority over every assignment in the makefile, so `make LDFLAGS=-static` replaces the per-target `_LDFLAGS` instead of adding to them. Use `.env` for a value that should sit alongside the per-target flags, and the command line for a one-off override that deliberately takes over.
+
+Flags reach the compiler in this order:
+
+```
+build mode (DEBUG/RELEASE/SANITIZE) -> PROJECT_* -> user -> per-target -> exported by dependencies
+```
+
+Where a compiler honours the last occurrence of an option, later tiers win. A `<name>_CFLAGS = -O0` overrides a project-wide `-O2`.
+
+Per-target flags stay on their target. A target sees the user and project flags, its own, and whatever its dependencies export. Nothing arrives from the targets that depend on it. An executable's `_LDFLAGS` do not follow the link into the shared libraries it uses, so a shared library builds identically whether you run `make mylib` or `make myapp`.
+
+Project-wide flags belong in the `PROJECT_*` variables rather than in `CFLAGS` or `LDFLAGS`. Setting them as user variables takes away the knob the person building your project expects to have.
+
+To pass flags from a library to everything that links it, use the `_EXPORTED_*` variables rather than the project variables. They propagate transitively through `_LIBS`:
+
+```make
+# src/libfoo/module.mk
+LIBRARIES += foo
+foo_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
+foo_SRCS = foo.c
+foo_CFLAGS = -fno-strict-aliasing    # foo.c only
+foo_EXPORTED_CPPFLAGS = -I$(foo_DIR) # anything with foo in its _LIBS
+```
+
 ### Executable with a Static Library
 
 ```
@@ -398,7 +435,7 @@ make clean SANITIZE=address,undefined
 
 ## Customization
 
-Override on the command line, in the environment, or in a `.env` file (copy `env.example` to `.env` for local settings):
+Override on the command line, in the environment, or in a `.env` file (copy `env.example` to `.env` for local settings). `CFLAGS`, `LDFLAGS`, and the other flag variables are yours to set here too; see [Flag Scoping](#flag-scoping) for how they combine with the project and per-target tiers.
 
 | Variable | Default | Description |
 |----------|---------|-------------|

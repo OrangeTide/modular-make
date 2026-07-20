@@ -14,6 +14,32 @@ BEGIN {
     state = "normal"  # normal, saw_sep, saw_title
 }
 
+# Escape prose so Markdown renders makefile notation literally.
+# "<name>_CFLAGS" would otherwise parse as a raw HTML tag and disappear,
+# and a pair of underscores or asterisks in one paragraph ("_EXPORTED_*",
+# "_build/x86_64-linux-gnu/") would italicise the text between them.
+#
+# Text already inside a `backtick span` is left alone: it is a code span,
+# where a backslash would show up literally rather than escaping anything.
+# Splitting on the backtick puts the spans at even positions, so only the
+# odd ones get escaped.  Indented lines never reach here; they are emitted
+# verbatim inside a fenced block.
+function escape_prose(s,   n, parts, i, out) {
+    n = split(s, parts, "`")
+    out = ""
+    for (i = 1; i <= n; i++) {
+        if (i % 2 == 1) {
+            gsub(/</, "\\&lt;", parts[i])
+            gsub(/>/, "\\&gt;", parts[i])
+            gsub(/_/, "\\_", parts[i])
+            gsub(/\*/, "\\*", parts[i])
+        }
+        out = out parts[i]
+        if (i < n) out = out "`"
+    }
+    return out
+}
+
 # Stop at first non-comment line (ignoring blank lines)
 /^[^#]/ && !/^$/ { exit }
 
@@ -29,7 +55,7 @@ BEGIN {
     } else if (state == "saw_title") {
         # Closing separator -- emit the heading
         print ""
-        print "## " section_title
+        print "## " escape_prose(section_title)
         print ""
         state = "normal"
     }
@@ -50,7 +76,7 @@ NR == 1 {
     # "modular-make -- Title [v1.1.0]" -> "# Title"
     sub(/^[^ ]+ -- /, "")
     sub(/ \[v[0-9.]+\]$/, "")
-    print "# " $0
+    print "# " escape_prose($0)
     next
 }
 
@@ -80,7 +106,7 @@ NR == 3 && /^#$/ { next }
         in_code = 0
     }
 
-    print line
+    print in_code ? line : escape_prose(line)
 }
 
 END {
