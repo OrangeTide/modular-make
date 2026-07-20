@@ -388,6 +388,12 @@ _out/<triplet>/lib/  shared libraries
 
 The triplet (e.g. `x86_64-linux-gnu`) comes from `$(CC) -dumpmachine`, so cross-compiled artifacts don't clobber native ones.
 
+Set `TARGET_TRIPLET` in `.env` or on the command line to override it. This is needed when two toolchains report the same triplet: a musl cross-compiler reports its glibc counterpart's triplet (`arm-linux-musleabihf-gcc` reports `arm-linux-gnueabihf`), so without an override both builds share one directory and silently reuse each other's objects.
+
+```sh
+make TARGET_TRIPLET=arm-linux-musleabihf   # _build/arm-linux-musleabihf/
+```
+
 ### Build Variants
 
 A build variant adds one more path component under the triplet, so objects compiled with different flags never share a path:

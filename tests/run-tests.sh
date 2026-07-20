@@ -201,6 +201,36 @@ run_test "global LDFLAGS reaches the shared library too" \
 rm -f shlib/.env
 $SHMAKE clean-all $EXTRA >/dev/null 2>&1
 
+printf "\n=== TARGET_TRIPLET override ===\n"
+# -dumpmachine does not always identify a toolchain uniquely: a musl
+# cross-compiler reports its glibc counterpart's triplet. Without an override
+# both builds share one directory and silently reuse each other's objects.
+# The probe keeps the OS field intact so platform detection still works.
+$MAKE clean-all $EXTRA >/dev/null 2>&1
+real_triplet=$($MAKE -p $EXTRA 2>/dev/null | sed -n 's/^TARGET_TRIPLET := *//p' | head -1)
+probe_triplet=$(echo "$real_triplet" | sed 's/[^-]*$/probe/')
+run_test "default build uses the -dumpmachine triplet" \
+	sh -c "$MAKE app $EXTRA >/dev/null 2>&1 && test -d '_build/$real_triplet'"
+# clean before clean-all: clean-all does not read config.mk, so it cannot
+# remove objects built from config-gated sources.
+$MAKE clean $EXTRA >/dev/null 2>&1
+$MAKE clean-all $EXTRA >/dev/null 2>&1
+cat > .env <<ENV
+TARGET_TRIPLET=$probe_triplet
+ENV
+run_test "TARGET_TRIPLET from .env selects the build directory" \
+	sh -c "$MAKE app $EXTRA >/dev/null 2>&1 && test -d '_build/$probe_triplet'"
+run_test "app runs (overridden triplet)" sh -c "_out/$probe_triplet/bin/app"
+run_test "overridden build does not touch the default triplet directory" \
+	sh -c "! test -d '_build/$real_triplet'"
+$MAKE clean $EXTRA >/dev/null 2>&1
+rm -f .env
+$MAKE clean-all TARGET_TRIPLET="$probe_triplet" $EXTRA >/dev/null 2>&1
+run_test "TARGET_TRIPLET on the command line selects the build directory" \
+	sh -c "$MAKE app TARGET_TRIPLET='$probe_triplet' $EXTRA >/dev/null 2>&1 && test -d '_build/$probe_triplet'"
+$MAKE clean TARGET_TRIPLET="$probe_triplet" $EXTRA >/dev/null 2>&1
+$MAKE clean-all TARGET_TRIPLET="$probe_triplet" $EXTRA >/dev/null 2>&1
+
 printf "\n=== clean-all ===\n"
 $MAKE $EXTRA >/dev/null 2>&1
 $MAKE clean $EXTRA >/dev/null 2>&1

@@ -1,4 +1,4 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.8.2]
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.8.3]
 # updated: 20 Jul 2026
 # Requires GNU Make 3.81 or later.  compile_commands.json needs the $(file)
 # function (GNU Make 4.0); it is skipped on 3.81.
@@ -57,7 +57,11 @@
 # installable outputs.
 #
 # The triplet (e.g. x86_64-linux-gnu) is obtained from $(CC) -dumpmachine
-# so that cross-compiled artifacts do not clobber native ones.
+# so that cross-compiled artifacts do not clobber native ones.  Set
+# TARGET_TRIPLET in .env or on the command line to override it, which is
+# needed when two toolchains report the same triplet.  A musl cross-compiler
+# reports its glibc counterpart's triplet, so without an override the two
+# builds share a directory and silently reuse each other's objects.
 #
 # A build variant adds one more path component under the triplet, so
 # objects compiled with different flags never share a path and Make
@@ -650,7 +654,17 @@ GM2     ?= gm2
 
 # Detect the compiler's target triplet early so platform guards in the
 # RELEASE block and module.mk files can reference it.
+#
+# Overridable from .env or the command line, because -dumpmachine does not
+# always identify a toolchain uniquely.  A musl cross-compiler reports the
+# same triplet as its glibc counterpart (arm-linux-musleabihf-gcc reports
+# arm-linux-gnueabihf), so without an override both would share one build
+# directory and silently reuse each other's objects.  Set TARGET_TRIPLET to
+# separate them.  Guarded with ifndef rather than ?= so the probe stays
+# immediate and runs at most once.
+ifndef TARGET_TRIPLET
 TARGET_TRIPLET := $(shell $(CC) -dumpmachine 2>/dev/null)
+endif
 
 # Cross-toolchain prefix derived from $(CC) so OBJCOPY/STRIP match the target.
 # e.g. CC=aarch64-linux-gnu-gcc -> aarch64-linux-gnu-objcopy.  Empty for native.
