@@ -351,15 +351,46 @@ _out/<triplet>/lib/  shared libraries
 
 The triplet (e.g. `x86_64-linux-gnu`) comes from `$(CC) -dumpmachine`, so cross-compiled artifacts don't clobber native ones.
 
+### Build Variants
+
+A build variant adds one more path component under the triplet, so objects compiled with different flags never share a path:
+
+```
+_build/<triplet>/<variant>/       objects for the variant
+_out/<triplet>/<variant>/bin/     binaries for the variant
+```
+
+The variant tag comes from the build mode, the sanitizer list, and a free-form `VARIANT` value, joined with `-` in that order:
+
+| Command | Build directory |
+|---------|-----------------|
+| `make` | `_build/<triplet>/` |
+| `make RELEASE=1` | `_build/<triplet>/release/` |
+| `make SANITIZE=address,undefined` | `_build/<triplet>/san-address+undefined/` |
+| `make DEBUG=1 VARIANT=coverage` | `_build/<triplet>/debug-coverage/` |
+
+A plain `make` has an empty tag and builds directly under the triplet, which is the layout earlier versions used. Because each variant owns its objects, switching between them does not force a rebuild and cannot mix incompatible objects. Sanitizer tokens are sorted, so `SANITIZE=address,undefined` and `SANITIZE=undefined,address` name the same directory.
+
+`config.mk` and `config.h` stay at the triplet level and are shared by every variant, so a sanitizer build uses the same feature configuration as the ordinary one.
+
+`make clean` and `make clean_<name>` act on the variant named by the current command line, so pass the same variant variables you built with:
+
+```sh
+make SANITIZE=address,undefined
+make clean SANITIZE=address,undefined
+```
+
+`make clean-all` removes the shared config and prunes every empty directory under `_build` and `_out`, including other variants.
+
 ## Make Targets
 
 | Target | Description |
 |--------|-------------|
 | `make` | Build all executables (default) |
 | `make <name>` | Build a single target by name |
-| `make clean` | Remove generated files |
+| `make clean` | Remove generated files for the current build variant |
 | `make clean_<name>` | Remove files for a single target |
-| `make clean-all` | `clean` plus remove empty build directories |
+| `make clean-all` | `clean` plus remove `config.mk`, `config.h`, and every empty build directory |
 | `make run-tests` | Build all test targets, then run their `_TESTCMD` |
 | `make run-test-<name>` | Build and test a single target |
 | `make defconfig` | Reset `config.mk` from `./defconfig` (auto-created on first build) |
@@ -384,6 +415,8 @@ Override on the command line, in the environment, or in a `.env` file (copy `env
 | `DEBUG` | (unset) | Enable debug build flags (`-Og -g -fno-omit-frame-pointer`) |
 | `RELEASE` | (unset) | Enable release build flags (`-O2`, LTO, `-DNDEBUG`, section GC) |
 | `RELEASE_MARCH` | `native` | Target architecture for release builds (e.g. `x86-64-v2`) |
+| `SANITIZE` | (unset) | Comma-separated sanitizer list passed to `-fsanitize` (e.g. `address,undefined`) |
+| `VARIANT` | (unset) | Free-form variant name for a project's own flag set (coverage, profiling) |
 | `MKDIR_P` | `mkdir -p` | Directory creation |
 | `RMDIR` | `rmdir` | Directory removal |
 | `V` | (unset) | Verbose output. `V=1` prints full command lines (recommended for CI/CD). Default shows short tags (`CC`, `LD`, `AR`, etc.) |
@@ -408,6 +441,28 @@ Release build:
 ```sh
 make RELEASE=1
 make RELEASE=1 RELEASE_MARCH=x86-64-v3
+```
+
+Sanitizer build:
+
+```sh
+make SANITIZE=address,undefined
+_out/*/san-address+undefined/bin/myapp
+```
+
+`SANITIZE` adds the flags to every compile and link command, along with `-g` and `-fno-omit-frame-pointer` for readable reports. It composes with the build mode. The default mode or `DEBUG=1` is the usual pairing, since `-O2` and LTO make sanitizer reports harder to read. Set runtime options in the environment, for example `ASAN_OPTIONS=detect_leaks=1`.
+
+A project that needs its own flag set gives it a name with `VARIANT` and applies the flags from a `module.mk`:
+
+```make
+ifeq ($(VARIANT),coverage)
+  PROJECT_CFLAGS += --coverage
+  PROJECT_LDFLAGS += --coverage
+endif
+```
+
+```sh
+make VARIANT=coverage
 ```
 
 Cross-compile example:

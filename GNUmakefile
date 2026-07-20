@@ -1,5 +1,5 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.7.1]
-# updated: 17 Jul 2026
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.8.0]
+# updated: 20 Jul 2026
 # Requires GNU Make 3.81 or later.  compile_commands.json needs the $(file)
 # function (GNU Make 4.0); it is skipped on 3.81.
 #
@@ -58,6 +58,31 @@
 #
 # The triplet (e.g. x86_64-linux-gnu) is obtained from $(CC) -dumpmachine
 # so that cross-compiled artifacts do not clobber native ones.
+#
+# A build variant adds one more path component under the triplet, so
+# objects compiled with different flags never share a path and Make
+# rebuilds only what that variant needs:
+#
+#   _build/<triplet>/<variant>/       objects for the variant
+#   _out/<triplet>/<variant>/bin/     binaries for the variant
+#
+# The variant tag comes from the build mode, the sanitizer list, and a
+# free-form VARIANT value, joined with '-' in that order:
+#
+#   make                             _build/<triplet>/
+#   make RELEASE=1                   _build/<triplet>/release/
+#   make SANITIZE=address,undefined  _build/<triplet>/san-address+undefined/
+#   make DEBUG=1 VARIANT=coverage    _build/<triplet>/debug-coverage/
+#
+# A plain `make` has an empty tag and builds directly under the triplet.
+# See CUSTOMIZATION for the variables involved.
+#
+# config.mk and config.h stay at the triplet level and are shared by every
+# variant, so a sanitizer build uses the same feature configuration as the
+# ordinary one.  `make clean` and `make clean_<name>` act on the variant
+# named by the current command line, so pass the same variant variables you
+# built with.  `make clean-all` removes the shared config and prunes every
+# empty directory under _build and _out.
 #
 # ============================================================================
 # MODULE.MK FILES
@@ -292,10 +317,12 @@
 #   $(BUILDDIR)/$(myapp_DIR)proto_msg.c : $(myapp_DIR)proto.idl
 #   	my-codegen $< -o $@
 #
-# The generated file ends up at _build/<triplet>/src/proto_msg.c (or
-# wherever _DIR points) and is compiled to _build/<triplet>/src/proto_msg.o
-# just like a normal source file.  The module.mk must supply the rule
-# that creates the generated file.
+# The generated file ends up at $(BUILDDIR)/src/proto_msg.c (or wherever
+# _DIR points) and is compiled to $(BUILDDIR)/src/proto_msg.o just like a
+# normal source file.  The module.mk must supply the rule that creates the
+# generated file.  Because BUILDDIR includes the variant tag, each variant
+# regenerates its own copy, which is what a generator whose output depends
+# on the build flags requires.
 #
 # Example -- a generator that emits a paired source and header (e.g. an IDL
 # compiler producing proto.c + proto.h that other modules #include):
@@ -370,10 +397,11 @@
 # BUILD CONFIGURATION (CONFIG_* OPTIONS)
 # ============================================================================
 #
-# Optional per-triplet feature toggles.  A config.mk file in the build
-# directory (e.g. _build/x86_64-linux-gnu/config.mk) sets CONFIG_*
-# variables to 'y' or 'n' to control which sources, flags, and modules
-# are included in the build.
+# Optional per-triplet feature toggles.  A config.mk file at the triplet
+# level of the build tree (e.g. _build/x86_64-linux-gnu/config.mk) sets
+# CONFIG_* variables to 'y' or 'n' to control which sources, flags, and
+# modules are included in the build.  Every build variant of a triplet
+# shares this one file.
 #
 # If a defconfig file exists in the project root, config.mk is
 # auto-created from it on the first build.  To reset or switch:
@@ -399,11 +427,11 @@
 #   2. -DCONFIG_FOO=1 is added to PROJECT_CPPFLAGS so C/C++ code can
 #      use #ifdef CONFIG_FOO.
 #
-#   3. A config.h header is auto-generated in the build directory.
+#   3. A config.h header is auto-generated next to config.mk.
 #      CONFIG_FOO = y becomes #define CONFIG_FOO 1; any other non-'n'
 #      value is emitted verbatim (#define CONFIG_BAR "string").
 #      Source files can #include "config.h" to access all config
-#      values without -D escaping.  -I$(BUILDDIR) is added
+#      values without -D escaping.  -I$(CONFIGDIR) is added
 #      automatically.
 #
 # Non-boolean parameters use the CONFIG_ prefix and a literal value:
@@ -421,8 +449,8 @@
 #   endif
 #
 # Config options control features, not toolchains.  Compiler selection
-# (CC, USE_CLANG) and build modes (DEBUG, RELEASE) belong in .env or
-# on the command line.
+# (CC, USE_CLANG) and build variants (DEBUG, RELEASE, SANITIZE, VARIANT)
+# belong in .env or on the command line.
 #
 # ============================================================================
 # MAKE TARGETS
@@ -431,17 +459,19 @@
 #   make              Build all executables (default).
 #   make <name>       Build a single project or library by target name.
 #   make clean        Remove all generated objects, dependency files,
-#                     archives, shared libraries, and binaries.
+#                     archives, shared libraries, and binaries for the
+#                     current build variant.
 #   make clean_<name> Remove generated files for a single target.
-#   make clean-all    Like clean, then also remove empty build/output
-#                     directories (deepest first).
+#   make clean-all    Like clean, then remove config.mk and config.h and
+#                     prune every empty directory under _build and _out
+#                     (deepest first), including other variants.
 #   make run-tests    Build all test targets, then run their test
 #                     commands.  See _TESTCMD in MODULE.MK FILES.
 #   make run-test-<name>  Build and test a single target.
 #   make compile_commands.json
 #                     Generate compile_commands.json for clangd and
 #                     other LSP tooling.  Also rebuilt by "make all".
-#   make defconfig    Reset $(BUILDDIR)/config.mk from the project's
+#   make defconfig    Reset $(CONFIGDIR)/config.mk from the project's
 #                     defconfig template (auto-created on first build).
 #                     Edit the file to customize CONFIG_* options.
 #   make defconfig_<name>
@@ -480,6 +510,25 @@
 #               (default: native).  Examples: x86-64-v2, x86-64-v3.
 #               To list available options on x86-64, run:
 #               /lib64/ld-linux-x86-64.so.2 --help
+#   SANITIZE    Comma-separated sanitizer list passed to -fsanitize,
+#               e.g. SANITIZE=address,undefined.  Adds the flags to
+#               every compile and link command, along with -g and
+#               -fno-omit-frame-pointer for readable reports.
+#   VARIANT     Free-form variant name.  Use it when a project defines
+#               its own flag set (coverage, valgrind-friendly, profiling)
+#               and needs a separate build directory for it.
+#
+# DEBUG, RELEASE, SANITIZE, and VARIANT each contribute to the variant
+# tag that names the build and output directories.  Builds using different
+# values never share objects, so switching between them does not force a
+# rebuild and cannot mix incompatible objects.  Sanitizer tokens are
+# sorted, so SANITIZE=address,undefined and SANITIZE=undefined,address
+# name the same directory.
+#
+# Sanitizers compose with the build mode.  The default mode or DEBUG=1 is
+# the usual pairing, since -O2 and LTO make sanitizer reports harder to
+# read.  A project that needs extra runtime flags sets them in the
+# environment, for example ASAN_OPTIONS=detect_leaks=1.
 #
 # DEBUG and RELEASE are mutually exclusive.  Build mode flags are
 # injected into all GCC-based compile and link commands (C, C++, D,
@@ -494,7 +543,7 @@
 # target's flags self-contained and avoids surprising flag leakage
 # between unrelated targets.
 #
-# Optional build configuration is loaded from $(BUILDDIR)/config.mk,
+# Optional build configuration is loaded from $(CONFIGDIR)/config.mk,
 # auto-created from ./defconfig on first build (or via 'make defconfig').
 # See BUILD CONFIGURATION above for details.
 #
@@ -586,6 +635,11 @@ _TOOLCHAIN_PREFIX := $(shell echo "$(CC)" | sed -E 's|.*/||; s/(gcc|clang|cc)(-[
 OBJCOPY ?= $(_TOOLCHAIN_PREFIX)objcopy
 STRIP   ?= $(_TOOLCHAIN_PREFIX)strip
 
+# Literal space and comma, for subst-based list manipulation.
+_empty :=
+_space := $(_empty) $(_empty)
+_comma := ,
+
 # Release build flags.  Invoke with `make RELEASE=1` for optimized binaries.
 #
 # Override architecture: `make RELEASE=1 RELEASE_MARCH=x86-64-v3`
@@ -639,6 +693,17 @@ else ifdef DEBUG
   _BUILD_MODE_CPPFLAGS :=
   _BUILD_MODE_LDFLAGS := -g
   $(info DEBUG build)
+endif
+
+# Sanitizer flags.  These append to the build mode flags, so SANITIZE
+# composes with RELEASE and DEBUG.  _SAN_TOKENS also feeds the variant tag
+# built in the Directories section below.
+ifdef SANITIZE
+  _SAN_TOKENS := $(sort $(subst $(_comma),$(_space),$(SANITIZE)))
+  _SAN_FLAGS := -fsanitize=$(subst $(_space),$(_comma),$(_SAN_TOKENS))
+  _BUILD_MODE_CFLAGS  += $(_SAN_FLAGS) -fno-omit-frame-pointer -g
+  _BUILD_MODE_LDFLAGS += $(_SAN_FLAGS)
+  $(info SANITIZE build: $(_SAN_FLAGS))
 endif
 
 # Split-debug post-link step: extract debug symbols to <exec>.debug, strip the
@@ -733,7 +798,9 @@ explode_dirs = $(sort $(filter-out .,$(if $1,$(call explode_dirs,$(filter-out $1
 # --- Directories ------------------------------------------------------------
 # Object files go under _build/<triplet>/ so cross-compiles don't clobber
 # each other.  Binaries and libraries go under _out/<triplet>/bin and
-# _out/<triplet>/lib respectively.
+# _out/<triplet>/lib respectively.  A build variant inserts one more path
+# component under the triplet; see the build tree diagram at the top of
+# this file.
 
 # Derive target OS and arch from the compiler's triplet so that
 # platform-specific variable suffixes (e.g. _SRCS.aarch64) resolve
@@ -760,12 +827,28 @@ else
 endif
 
 ifdef TARGET_TRIPLET
-  BUILDDIR := _build/$(TARGET_TRIPLET)
-  OUTDIR := _out/$(TARGET_TRIPLET)
+  CONFIGDIR := _build/$(TARGET_TRIPLET)
+  _OUTROOT := _out/$(TARGET_TRIPLET)
 else
-  BUILDDIR := _build
-  OUTDIR := _out
+  CONFIGDIR := _build
+  _OUTROOT := _out
 endif
+
+# Build variants get their own subdirectory under the triplet so objects
+# compiled with different flags never share a path.  A plain `make` has an
+# empty tag and keeps the historical layout.  The tag joins, in order:
+#
+#   <mode>-san-<tokens>-<VARIANT>     e.g. release-san-address+undefined
+#
+# Sanitizer tokens are sorted so SANITIZE=undefined,address and
+# SANITIZE=address,undefined resolve to the same directory.
+_VARIANT := $(subst $(_space),-,$(strip \
+  $(if $(RELEASE),release)$(if $(DEBUG),debug) \
+  $(if $(_SAN_TOKENS),san-$(subst $(_space),+,$(_SAN_TOKENS))) \
+  $(VARIANT)))
+
+BUILDDIR := $(CONFIGDIR)$(if $(_VARIANT),/$(_VARIANT))
+OUTDIR := $(_OUTROOT)$(if $(_VARIANT),/$(_VARIANT))
 # for executables
 BINDIR = $(OUTDIR)/bin
 # for shared libraries
@@ -820,12 +903,14 @@ endif
 ### Build Configuration (CONFIG_* options) ###
 
 ifneq ($(MAKECMDGOALS),clean-all)
-include $(BUILDDIR)/config.mk
+include $(CONFIGDIR)/config.mk
 endif
 
-# Make $(BUILDDIR) available on the include path so source files can
-# #include "config.h" for non-boolean config parameters.
-PROJECT_CPPFLAGS += -I$(BUILDDIR)
+# Make $(CONFIGDIR) available on the include path so source files can
+# #include "config.h" for non-boolean config parameters.  config.h lives at
+# the triplet level and is shared by every build variant.  $(BUILDDIR) is
+# also added because generated headers land there.
+PROJECT_CPPFLAGS += -I$(CONFIGDIR) $(if $(_VARIANT),-I$(BUILDDIR))
 
 ### Module Loader ###
 
@@ -995,8 +1080,9 @@ $(if $(filter-out clean clean-all clean_%,$(or $(MAKECMDGOALS),all)),$(shell $(M
 all :: $$(EXECUTABLES) compile_commands.json
 clean : $$(addprefix clean_,$$(EXECUTABLES) $$(LIBRARIES) $$(SHARED_LIBS))
 clean-all : clean
-	$(RM) $(BUILDDIR)/config.mk $(BUILDDIR)/config.h $(BUILDDIR)/config.h.tmp
+	$(RM) $(CONFIGDIR)/config.mk $(CONFIGDIR)/config.h $(CONFIGDIR)/config.h.tmp
 	-printf '%s\n' $(call explode_dirs,$(_all_dirs)) | sort -r | while read -r d; do $(RMDIR) "$$d" 2>/dev/null; done; true
+	-find _build _out -depth -type d -exec $(RMDIR) {} + 2>/dev/null; true
 	$(RM) compile_commands.json
 .PHONY : all clean clean-all clean_% defconfig $(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS)
 .DELETE_ON_ERROR :
@@ -1004,30 +1090,30 @@ clean-all : clean
 # config.mk: auto-created from defconfig on first build.
 # Only fires when config.mk does not exist yet; updates go through
 # 'make defconfig'.
-ifeq ($(wildcard $(BUILDDIR)/config.mk),)
+ifeq ($(wildcard $(CONFIGDIR)/config.mk),)
 ifneq ($(wildcard defconfig),)
-$(BUILDDIR)/config.mk : defconfig
+$(CONFIGDIR)/config.mk : defconfig
 	@$(MKDIR_P) $(@D)
 	cp $< $@
 else
-$(BUILDDIR)/config.mk : ; @$(MKDIR_P) $(@D) && touch $@
+$(CONFIGDIR)/config.mk : ; @$(MKDIR_P) $(@D) && touch $@
 endif
 endif
 
 # defconfig: reset config.mk from a template.
 defconfig :
-	@$(MKDIR_P) $(BUILDDIR)
-	$(if $(wildcard defconfig),cp defconfig $(BUILDDIR)/config.mk,$(error no defconfig found))
+	@$(MKDIR_P) $(CONFIGDIR)
+	$(if $(wildcard defconfig),cp defconfig $(CONFIGDIR)/config.mk,$(error no defconfig found))
 defconfig_% :
-	@$(MKDIR_P) $(BUILDDIR)
-	$(if $(wildcard configs/$*.mk),cp configs/$*.mk $(BUILDDIR)/config.mk,$(error no configs/$*.mk found))
+	@$(MKDIR_P) $(CONFIGDIR)
+	$(if $(wildcard configs/$*.mk),cp configs/$*.mk $(CONFIGDIR)/config.mk,$(error no configs/$*.mk found))
 
 # config.h: auto-generated header from config.mk.
 # CONFIG_FOO = y  ->  #define CONFIG_FOO 1
 # CONFIG_BAR = n  ->  (skipped)
 # CONFIG_X = val  ->  #define CONFIG_X val
 # Uses compare-and-swap to avoid unnecessary rebuilds.
-$(BUILDDIR)/config.h : $(BUILDDIR)/config.mk
+$(CONFIGDIR)/config.h : $(CONFIGDIR)/config.mk
 	@$(MKDIR_P) $(@D)
 	@awk '/^[A-Za-z_][A-Za-z0-9_]*[[:space:]]*[?:]*=/ { \
 		name = $$1; \
@@ -1168,7 +1254,7 @@ $(foreach X,$(filter-out $(_compdb_exts),$(EXTENSIONS)),$(eval $(BUILDDIR)/%.o :
 # $(file) (see compdb._emit above).  This target depends on all object
 # files so the sidecars are created first, then concatenates them.
 _all_objs := $(foreach p,$(EXECUTABLES) $(LIBRARIES) $(SHARED_LIBS),$(call get_all_objs,$p))
-$(_all_objs) : $(BUILDDIR)/config.h
+$(_all_objs) : $(CONFIGDIR)/config.h
 compile_commands.json : $(_all_objs)
 	@cat $(wildcard $(patsubst %.o,%.cmd.json,$^)) /dev/null \
 	| awk 'BEGIN{printf "["}NR>1{printf ","}  \

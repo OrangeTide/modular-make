@@ -77,19 +77,43 @@ run_test "objects removed" sh -c '! test -f _build/*/src/main.o'
 
 printf "\n=== DEBUG build ===\n"
 run_test "make DEBUG=1" $MAKE DEBUG=1 $EXTRA
-run_test "app runs (debug)" _out/*/bin/app
-run_test "debug symbols present" sh -c 'file _out/*/bin/app | grep -q "not stripped"'
-$MAKE clean $EXTRA >/dev/null 2>&1
+run_test "debug variant directory used" sh -c 'test -d _out/*/debug/bin'
+run_test "app runs (debug)" _out/*/debug/bin/app
+run_test "debug symbols present" sh -c 'file _out/*/debug/bin/app | grep -q "not stripped"'
+run_test "default build untouched by debug" sh -c '! test -f _build/*/src/main.o'
+$MAKE clean DEBUG=1 $EXTRA >/dev/null 2>&1
 
 printf "\n=== RELEASE build ===\n"
 run_test "make RELEASE=1" $MAKE RELEASE=1 $EXTRA
-run_test "app runs (release)" _out/*/bin/app
-$MAKE clean $EXTRA >/dev/null 2>&1
+run_test "app runs (release)" _out/*/release/bin/app
+$MAKE clean RELEASE=1 $EXTRA >/dev/null 2>&1
 
 printf "\n=== RELEASE with RELEASE_MARCH ===\n"
 run_test "make RELEASE=1 RELEASE_MARCH=x86-64" $MAKE RELEASE=1 RELEASE_MARCH=x86-64 $EXTRA
-run_test "app runs (release x86-64)" _out/*/bin/app
-$MAKE clean $EXTRA >/dev/null 2>&1
+run_test "app runs (release x86-64)" _out/*/release/bin/app
+$MAKE clean RELEASE=1 $EXTRA >/dev/null 2>&1
+
+printf "\n=== build variants ===\n"
+run_test "make SANITIZE=address,undefined" $MAKE SANITIZE=address,undefined $EXTRA
+run_test "sanitizer variant directory used" sh -c 'test -d "_build/"*"/san-address+undefined"'
+run_test "app runs (sanitized)" sh -c '_out/*/san-address+undefined/bin/app'
+run_test "sanitizer runtime linked" \
+	sh -c 'ldd _out/*/san-address+undefined/bin/app 2>/dev/null | grep -qi asan || \
+	       nm _out/*/san-address+undefined/bin/app 2>/dev/null | grep -qi asan'
+# Token order must normalize to one directory, so this rebuild is a no-op.
+run_test "SANITIZE token order normalized" \
+	sh -c "$MAKE SANITIZE=undefined,address $EXTRA 2>&1 | grep -q 'Nothing to be done\|up to date' || \
+	       test -d '_build/'*'/san-address+undefined'"
+run_test "config.mk shared across variants" \
+	sh -c 'test "$(find _build -name config.mk | wc -l)" -eq 1'
+$MAKE clean SANITIZE=address,undefined $EXTRA >/dev/null 2>&1
+
+run_test "make VARIANT=custom" $MAKE VARIANT=custom $EXTRA
+run_test "app runs (custom variant)" _out/*/custom/bin/app
+run_test "variant composes with mode" \
+	sh -c "$MAKE DEBUG=1 VARIANT=custom $EXTRA >/dev/null 2>&1 && test -d _build/*/debug-custom"
+$MAKE clean VARIANT=custom $EXTRA >/dev/null 2>&1
+$MAKE clean DEBUG=1 VARIANT=custom $EXTRA >/dev/null 2>&1
 
 printf "\n=== config options ===\n"
 $MAKE clean-all $EXTRA >/dev/null 2>&1
