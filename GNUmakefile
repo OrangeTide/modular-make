@@ -1,4 +1,4 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.8.0]
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.8.1]
 # updated: 20 Jul 2026
 # Requires GNU Make 3.81 or later.  compile_commands.json needs the $(file)
 # function (GNU Make 4.0); it is skipped on 3.81.
@@ -538,10 +538,16 @@
 # Uses -flto=thin with Clang and -flto=auto with GCC.
 #
 # Per-target CFLAGS, CXXFLAGS, CPPFLAGS, LDFLAGS, LDLIBS, and other
-# language-specific flags are set via target-specific variables and do
-# not inherit the global values.  This is intentional -- it keeps each
-# target's flags self-contained and avoids surprising flag leakage
-# between unrelated targets.
+# language-specific flags are set via target-specific variables that
+# append to the global value rather than replacing it.  The global value
+# is the user's configuration knob, set in .env or on the command line,
+# so a CFLAGS=-O3 or LDFLAGS=-static there reaches every target.  The
+# per-target value is appended after it, so a per-target flag still wins
+# wherever the compiler honours the last occurrence.
+#
+# Project-wide flags belong in PROJECT_CFLAGS, PROJECT_LDFLAGS, and the
+# other PROJECT_* variables, not in the global CFLAGS or LDFLAGS.  Those
+# are reserved for the user and are never set by this makefile.
 #
 # Optional build configuration is loaded from $(CONFIGDIR)/config.mk,
 # auto-created from ./defconfig on first build (or via 'make defconfig').
@@ -1139,16 +1145,16 @@ define library_rules
 $1 : $(call get_lib,$1)
 $(call get_lib,$1) : $$(call get_all_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$($1_LIBS),$(call get_lib_file,$d)) | $$(@D)/
 	$$(link.a)
-$(call get_all_objs,$1) : CFLAGS=$$($1_CFLAGS) $(call get_exported_cflags,$1)
-$(call get_all_objs,$1) : CXXFLAGS=$$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
-$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1) $(call get_pkgs_cflags,$1) $(call get_gen_hdr_incs,$1)
+$(call get_all_objs,$1) : CFLAGS += $$($1_CFLAGS) $(call get_exported_cflags,$1)
+$(call get_all_objs,$1) : CXXFLAGS += $$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
+$(call get_all_objs,$1) : CPPFLAGS += $$($1_CPPFLAGS) $(call get_exported_cppflags,$1) $(call get_pkgs_cflags,$1) $(call get_gen_hdr_incs,$1)
 $(if $(call get_all_gen_hdrs,$1),$(call get_all_objs,$1) : | $(call get_all_gen_hdrs,$1))
-$(call get_all_objs,$1) : DFLAGS=$$($1_DFLAGS)
-$(call get_all_objs,$1) : FFLAGS=$$($1_FFLAGS)
-$(call get_all_objs,$1) : ASFLAGS=$$($1_ASFLAGS)
-$(call get_all_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
-$(call get_all_objs,$1) : FPCFLAGS=$$($1_FPCFLAGS)
-$(call get_all_objs,$1) : GM2FLAGS=$$($1_GM2FLAGS)
+$(call get_all_objs,$1) : DFLAGS += $$($1_DFLAGS)
+$(call get_all_objs,$1) : FFLAGS += $$($1_FFLAGS)
+$(call get_all_objs,$1) : ASFLAGS += $$($1_ASFLAGS)
+$(call get_all_objs,$1) : NASMFLAGS += $$($1_NASMFLAGS)
+$(call get_all_objs,$1) : FPCFLAGS += $$($1_FPCFLAGS)
+$(call get_all_objs,$1) : GM2FLAGS += $$($1_GM2FLAGS)
 clean_$1 :
 	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(patsubst %.o,%.cmd.json,$$(call get_all_objs,$1)) $$(call get_side_effects,$1) $$(call get_gen_srcs,$1) $$(call get_gen_hdrs,$1)
 	$$(RM) $(call get_lib,$1)
@@ -1161,18 +1167,18 @@ $1 : $(call get_so,$1)
 $(call get_so,$1) : $$(call get_all_objs,$1) $$($1_EXTRA_OBJS) $(foreach d,$($1_LIBS),$(call get_lib_file,$d)) | $$(@D)/
 	$$(link.so)
 $(call get_so,$1) : CXX_MODE=$(if $(call needs_cxx,$1),1)
-$(call get_so,$1) : LDFLAGS=$$($1_LDFLAGS) $(call get_exported_ldflags,$1)
-$(call get_so,$1) : LDLIBS=$$($1_LDLIBS) $(call get_exported_ldlibs,$1) $(call get_pkgs_ldlibs,$1)
-$(call get_all_objs,$1) : CFLAGS=-fPIC $$($1_CFLAGS) $(call get_exported_cflags,$1)
-$(call get_all_objs,$1) : CXXFLAGS=-fPIC $$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
-$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1) $(call get_pkgs_cflags,$1) $(call get_gen_hdr_incs,$1)
+$(call get_so,$1) : LDFLAGS += $$($1_LDFLAGS) $(call get_exported_ldflags,$1)
+$(call get_so,$1) : LDLIBS += $$($1_LDLIBS) $(call get_exported_ldlibs,$1) $(call get_pkgs_ldlibs,$1)
+$(call get_all_objs,$1) : CFLAGS += -fPIC $$($1_CFLAGS) $(call get_exported_cflags,$1)
+$(call get_all_objs,$1) : CXXFLAGS += -fPIC $$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
+$(call get_all_objs,$1) : CPPFLAGS += $$($1_CPPFLAGS) $(call get_exported_cppflags,$1) $(call get_pkgs_cflags,$1) $(call get_gen_hdr_incs,$1)
 $(if $(call get_all_gen_hdrs,$1),$(call get_all_objs,$1) : | $(call get_all_gen_hdrs,$1))
-$(call get_all_objs,$1) : DFLAGS=-fPIC $$($1_DFLAGS)
-$(call get_all_objs,$1) : FFLAGS=-fPIC $$($1_FFLAGS)
-$(call get_all_objs,$1) : ASFLAGS=-fPIC $$($1_ASFLAGS)
-$(call get_all_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
-$(call get_all_objs,$1) : FPCFLAGS=-Cg $$($1_FPCFLAGS)
-$(call get_all_objs,$1) : GM2FLAGS=-fPIC $$($1_GM2FLAGS)
+$(call get_all_objs,$1) : DFLAGS += -fPIC $$($1_DFLAGS)
+$(call get_all_objs,$1) : FFLAGS += -fPIC $$($1_FFLAGS)
+$(call get_all_objs,$1) : ASFLAGS += -fPIC $$($1_ASFLAGS)
+$(call get_all_objs,$1) : NASMFLAGS += $$($1_NASMFLAGS)
+$(call get_all_objs,$1) : FPCFLAGS += -Cg $$($1_FPCFLAGS)
+$(call get_all_objs,$1) : GM2FLAGS += -fPIC $$($1_GM2FLAGS)
 clean_$1 :
 	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(patsubst %.o,%.cmd.json,$$(call get_all_objs,$1)) $$(call get_side_effects,$1) $$(call get_gen_srcs,$1) $$(call get_gen_hdrs,$1)
 	$$(RM) $(call get_so,$1)
@@ -1191,18 +1197,18 @@ $(BINDIR)/$1$(EXTENSION.exe) : $$(call get_all_objs,$1) $$($1_EXTRA_OBJS) $(fore
 	$$(link.c)
 	$$(_split_debug)
 $(BINDIR)/$1$(EXTENSION.exe) : CXX_MODE=$(if $(call needs_cxx,$1),1)
-$(BINDIR)/$1$(EXTENSION.exe) : LDFLAGS=$$($1_LDFLAGS) $(call get_exported_ldflags,$1)
-$(BINDIR)/$1$(EXTENSION.exe) : LDLIBS=$$($1_LDLIBS) $(call get_exported_ldlibs,$1) $(call get_pkgs_ldlibs,$1)
-$(call get_all_objs,$1) : CFLAGS=$$($1_CFLAGS) $(call get_exported_cflags,$1)
-$(call get_all_objs,$1) : CXXFLAGS=$$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
-$(call get_all_objs,$1) : CPPFLAGS=$$($1_CPPFLAGS) $(call get_exported_cppflags,$1) $(call get_pkgs_cflags,$1) $(call get_gen_hdr_incs,$1)
+$(BINDIR)/$1$(EXTENSION.exe) : LDFLAGS += $$($1_LDFLAGS) $(call get_exported_ldflags,$1)
+$(BINDIR)/$1$(EXTENSION.exe) : LDLIBS += $$($1_LDLIBS) $(call get_exported_ldlibs,$1) $(call get_pkgs_ldlibs,$1)
+$(call get_all_objs,$1) : CFLAGS += $$($1_CFLAGS) $(call get_exported_cflags,$1)
+$(call get_all_objs,$1) : CXXFLAGS += $$($1_CXXFLAGS) $(call get_exported_cxxflags,$1)
+$(call get_all_objs,$1) : CPPFLAGS += $$($1_CPPFLAGS) $(call get_exported_cppflags,$1) $(call get_pkgs_cflags,$1) $(call get_gen_hdr_incs,$1)
 $(if $(call get_all_gen_hdrs,$1),$(call get_all_objs,$1) : | $(call get_all_gen_hdrs,$1))
-$(call get_all_objs,$1) : DFLAGS=$$($1_DFLAGS)
-$(call get_all_objs,$1) : FFLAGS=$$($1_FFLAGS)
-$(call get_all_objs,$1) : ASFLAGS=$$($1_ASFLAGS)
-$(call get_all_objs,$1) : NASMFLAGS=$$($1_NASMFLAGS)
-$(call get_all_objs,$1) : FPCFLAGS=$$($1_FPCFLAGS)
-$(call get_all_objs,$1) : GM2FLAGS=$$($1_GM2FLAGS)
+$(call get_all_objs,$1) : DFLAGS += $$($1_DFLAGS)
+$(call get_all_objs,$1) : FFLAGS += $$($1_FFLAGS)
+$(call get_all_objs,$1) : ASFLAGS += $$($1_ASFLAGS)
+$(call get_all_objs,$1) : NASMFLAGS += $$($1_NASMFLAGS)
+$(call get_all_objs,$1) : FPCFLAGS += $$($1_FPCFLAGS)
+$(call get_all_objs,$1) : GM2FLAGS += $$($1_GM2FLAGS)
 clean_$1 :
 	$$(RM) $$(call get_all_objs,$1) $$(patsubst %.o,%.dep,$$(call get_all_objs,$1)) $$(patsubst %.o,%.cmd.json,$$(call get_all_objs,$1)) $$(call get_side_effects,$1) $$(call get_gen_srcs,$1) $$(call get_gen_hdrs,$1)
 	$$(RM) $(BINDIR)/$1$(EXTENSION.exe) $(BINDIR)/$1$(EXTENSION.exe).debug$(if $(findstring emscripten,$(TARGET_TRIPLET)), $(BINDIR)/$1.js $(BINDIR)/$1.wasm $(BINDIR)/$1.data)

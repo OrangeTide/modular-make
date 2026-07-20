@@ -133,6 +133,28 @@ run_test "app runs (with config)" _out/*/bin/app
 run_test "extra output with CONFIG_EXTRA" sh -c '_out/*/bin/app | grep -q "extra: label=bonus"'
 $MAKE clean $EXTRA >/dev/null 2>&1
 
+printf "\n=== user flags from .env ===\n"
+# A global CFLAGS/LDFLAGS belongs to the user and must reach every target.
+# Target-specific flags append to it rather than replacing it. Set them in
+# .env, not on the command line: a command-line variable overrides
+# target-specific assignments on its own and would pass even if the
+# target-specific rules clobbered the global value.
+$MAKE clean-all $EXTRA >/dev/null 2>&1
+cat > .env <<'ENV'
+CFLAGS=-DUSER_ENV_PROBE
+LDFLAGS=-L/tmp/modular-make-probe
+ENV
+run_test "global CFLAGS from .env reaches the compile line" \
+	sh -c "$MAKE V=1 app $EXTRA 2>&1 | grep -q -- '-DUSER_ENV_PROBE'"
+$MAKE clean-all $EXTRA >/dev/null 2>&1
+run_test "global LDFLAGS from .env reaches the link line" \
+	sh -c "$MAKE V=1 app $EXTRA 2>&1 | grep -q -- '-L/tmp/modular-make-probe'"
+run_test "app still runs with user flags" _out/*/bin/app
+run_test "per-target flags still applied" \
+	sh -c '_out/*/bin/app | grep -q "foo_val=42"'
+rm -f .env
+$MAKE clean-all $EXTRA >/dev/null 2>&1
+
 printf "\n=== clean-all ===\n"
 $MAKE $EXTRA >/dev/null 2>&1
 $MAKE clean $EXTRA >/dev/null 2>&1
