@@ -454,7 +454,7 @@ Override on the command line, in the environment, or in a `.env` file (copy `env
 | `FPC` | `fpc` | Free Pascal compiler |
 | `GM2` | `gm2` | GCC Modula-2 frontend |
 | `AR` | `ar` | Archiver |
-| `ARFLAGS` | `rvD` | Archiver flags |
+| `ARFLAGS` | `rvc`, plus `D` where supported | Archiver flags |
 | `DEBUG` | (unset) | Enable debug build flags (`-Og -g -fno-omit-frame-pointer`) |
 | `RELEASE` | (unset) | Enable release build flags (`-O2`, LTO, `-DNDEBUG`, section GC) |
 | `RELEASE_MARCH` | `native` | Target architecture for release builds (e.g. `x86-64-v2`) |

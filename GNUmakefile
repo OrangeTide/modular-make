@@ -1,4 +1,4 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.8.4]
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.8.5]
 # updated: 20 Jul 2026
 # Requires GNU Make 3.81 or later.  compile_commands.json needs the $(file)
 # function (GNU Make 4.0); it is skipped on 3.81.
@@ -497,7 +497,8 @@
 #   FPC         Free Pascal compiler               (default: fpc)
 #   GM2         GCC Modula-2 frontend              (default: gm2)
 #   AR          Archiver                           (default: ar)
-#   ARFLAGS     Archiver flags                     (default: rvD)
+#   ARFLAGS     Archiver flags                     (default: rvc, plus D
+#               when the archiver supports deterministic archives)
 #   MKDIR_P     Directory creation command          (default: mkdir -p)
 #   RMDIR       Directory removal command           (default: rmdir)
 #   V           Verbose output.  V=1 prints full command lines.
@@ -610,7 +611,10 @@ ifneq ($(V),1)
     _c_rst  := \033[0m
   endif
   _Q := @
-  _ar_redir := >/dev/null 2>&1
+  # stdout only.  The "v" in ARFLAGS lists each member added, which is noise
+  # in a quiet build, but stderr is where the archiver reports a failure, and
+  # swallowing that turns a broken toolchain into a bare "Error 1".
+  _ar_redir := >/dev/null
   _fpc_redir := >/dev/null
   _quiet.cc     = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'CC' '$<';
   _quiet.cxx    = @printf '  $(_c_tag)%-8s$(_c_rst) %s\n' 'CXX' '$<';
@@ -642,7 +646,25 @@ endif
 
 MKDIR_P ?= mkdir -p
 RMDIR   ?= rmdir
-ARFLAGS  = rvD
+
+# Make's built-in default for ARFLAGS is "rv".  Only that counts as nobody
+# having chosen: a value from .env, the environment, or the command line is
+# the user's and is left alone.  A plain "=" here beat both .env and the
+# environment, which is not what CUSTOMIZATION above promises.
+ifeq ($(origin ARFLAGS),default)
+  # c  Do not warn when the archive has to be created.  The rule always
+  #    creates one, so without this every archive writes a line to stderr,
+  #    and the only way to hide that is to hide real errors along with it.
+  # D  Deterministic archives: zero timestamps, uids, and gids.  GNU binutils
+  #    only -- Apple's ar rejects it outright -- so ask the archiver instead
+  #    of assuming.  An empty archive answers the question, so no compiler is
+  #    involved.  := inside the guard runs the probe once rather than on
+  #    every expansion.
+  _ar_D := $(shell _d=$$(mktemp -d 2>/dev/null) && [ -n "$$_d" ] && { \
+	$(AR) rcD $$_d/probe.a >/dev/null 2>&1 && printf D; rm -rf $$_d; })
+  ARFLAGS := rvc$(_ar_D)
+endif
+
 # Override Make's built-in FC=f77 default, but respect user/env overrides
 ifeq ($(origin FC),default)
   FC := gfortran

@@ -242,6 +242,62 @@ run_test "config-gated object built" sh -c 'test -f _build/*/src/extra.o'
 run_test "clean-all alone removes config-gated objects" \
 	sh -c "$MAKE clean-all $EXTRA >/dev/null 2>&1 && ! test -d _build"
 
+printf "\n=== ARFLAGS ===\n"
+# Make's built-in default is "rv", so only that counts as nobody having
+# chosen. A value from .env, the environment, or the command line is the
+# user's and must survive.
+#
+# -pq dumps the variable database without running a single recipe. The dump
+# goes to a file rather than a pipe: closing a pipe early on a -p that is
+# also building wedges make.
+_db=$(mktemp)
+_dump_arflags() {   # any arguments are passed to make
+	$MAKE -pq "$@" $EXTRA > "$_db" 2>/dev/null || true
+	sed -n 's/^ARFLAGS *:*= *//p' "$_db" | head -1
+}
+
+_af_default=$(_dump_arflags)
+case "$_af_default" in
+rvc*) pass "ARFLAGS defaults to rv plus c" ;;
+*)    fail "ARFLAGS defaults to rv plus c (got '$_af_default')" ;;
+esac
+
+_af_cmdline=$(_dump_arflags ARFLAGS=rq)
+run_test "ARFLAGS on the command line is respected" test "$_af_cmdline" = rq
+
+ARFLAGS=rq; export ARFLAGS
+_af_env=$(_dump_arflags)
+unset ARFLAGS
+run_test "ARFLAGS from the environment is respected" test "$_af_env" = rq
+
+# An archiver that rejects D, which is what Apple's ar does. The flag has to
+# be probed for rather than assumed, or every archive fails -- and because
+# the archive rule is quiet, it fails with no message at all.
+_realar=$(command -v ar)
+_fakebin=$(mktemp -d)
+# The real archiver by absolute path. "exec ar" would find this script again,
+# because $_fakebin goes on the front of PATH, and fork until the machine
+# gives up.
+cat > "$_fakebin/ar" <<FAKEAR
+#!/bin/sh
+case "\$1" in *D*) echo "ar: illegal option -- D" >&2; exit 1;; esac
+exec $_realar "\$@"
+FAKEAR
+chmod +x "$_fakebin/ar"
+
+_savedpath=$PATH
+PATH="$_fakebin:$PATH"
+_af_noD=$(_dump_arflags)
+PATH=$_savedpath
+run_test "D is dropped when the archiver rejects it" test "$_af_noD" = rvc
+
+$MAKE clean-all $EXTRA >/dev/null 2>&1
+run_test "archives build with an archiver that rejects D" \
+	sh -c "PATH='$_fakebin':\$PATH $MAKE app $EXTRA >/dev/null 2>&1"
+
+rm -rf "$_fakebin" "$_db"
+$MAKE clean-all $EXTRA >/dev/null 2>&1
+
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
 test "$FAIL" -eq 0
