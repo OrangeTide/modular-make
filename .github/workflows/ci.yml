@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (${{ matrix.compiler }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            args: ''
+          - compiler: clang
+            args: 'USE_CLANG=1'
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v6
+
+      # Informational only. A missing compiler should fail the test run with
+      # its own error, not this step.
+      - name: Show toolchain versions
+        continue-on-error: true
+        run: |
+          make --version | head -1
+          cc --version | head -1
+          c++ --version | head -1
+          clang --version | head -1
+
+      # run-tests.sh ends with "test $FAIL -eq 0", so a failed assertion
+      # exits non-zero and fails the job.
+      - name: Run test suite
+        run: tests/run-tests.sh ${{ matrix.args }}
+
+  docs:
+    name: docs extraction
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+
+      # The published page is generated from the GNUmakefile header on every
+      # push to main. Build it here so a broken header or extractor fails a
+      # PR instead of silently producing a mangled page.
+      - name: Extract and render docs
+        run: |
+          ./scripts/extract-docs.sh > index.md
+          test -s index.md
+          pandoc index.md -f markdown -t html --standalone \
+            --metadata title="modular-make" -o index.html
+          test -s index.html
+
+      # Makefile notation in the header must survive Markdown conversion.
+      # A placeholder such as <name>_CFLAGS otherwise parses as a raw HTML
+      # tag and disappears from the page, and a token like _EXPORTED_* turns
+      # into emphasised text. Anything outside the set of tags pandoc emits
+      # here is a placeholder that leaked through unescaped.
+      - name: Check makefile notation survived conversion
+        run: |
+          if grep -q '<em>' index.html; then
+            echo "unexpected emphasis in rendered page:" >&2
+            grep -n '<em>' index.html >&2
+            exit 1
+          fi
+          known='a|body|code|div|h1|h2|head|header|html|meta|p|pre|span|style|title'
+          stray=$(grep -oE '</?[a-zA-Z][a-zA-Z0-9-]*' index.html \
+                  | tr -d '</' | sort -u \
+                  | grep -vxE "$known" || true)
+          if [ -n "$stray" ]; then
+            echo "unexpected tags in rendered page (unescaped placeholder?):" >&2
+            echo "$stray" >&2
+            exit 1
+          fi
