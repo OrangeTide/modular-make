@@ -1,4 +1,4 @@
-# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.8.3]
+# modular-make -- A modular GNUmakefile for C, C++, D, Fortran, Objective-C, Objective-C++, Pascal, Modula-2, and Assembly projects [v1.8.4]
 # updated: 20 Jul 2026
 # Requires GNU Make 3.81 or later.  compile_commands.json needs the $(file)
 # function (GNU Make 4.0); it is skipped on 3.81.
@@ -939,7 +939,17 @@ endif
 
 ### Build Configuration (CONFIG_* options) ###
 
-ifneq ($(MAKECMDGOALS),clean-all)
+# An existing config.mk is always read, clean goals included.  A clean that
+# cannot see CONFIG_* gated sources does not know their objects exist and
+# leaves them behind, so the next build links stale objects from a
+# configuration that is no longer selected.
+#
+# When config.mk does not exist, the bare include is what bootstraps it: make
+# builds it through the auto-create rule below and restarts.  Skip that for
+# clean-only goals, which would create a config just to delete it again.
+ifneq ($(wildcard $(CONFIGDIR)/config.mk),)
+include $(CONFIGDIR)/config.mk
+else ifneq ($(filter-out clean clean-all clean_%,$(or $(MAKECMDGOALS),all)),)
 include $(CONFIGDIR)/config.mk
 endif
 

@@ -211,9 +211,6 @@ real_triplet=$($MAKE -p $EXTRA 2>/dev/null | sed -n 's/^TARGET_TRIPLET := *//p' 
 probe_triplet=$(echo "$real_triplet" | sed 's/[^-]*$/probe/')
 run_test "default build uses the -dumpmachine triplet" \
 	sh -c "$MAKE app $EXTRA >/dev/null 2>&1 && test -d '_build/$real_triplet'"
-# clean before clean-all: clean-all does not read config.mk, so it cannot
-# remove objects built from config-gated sources.
-$MAKE clean $EXTRA >/dev/null 2>&1
 $MAKE clean-all $EXTRA >/dev/null 2>&1
 cat > .env <<ENV
 TARGET_TRIPLET=$probe_triplet
@@ -223,12 +220,10 @@ run_test "TARGET_TRIPLET from .env selects the build directory" \
 run_test "app runs (overridden triplet)" sh -c "_out/$probe_triplet/bin/app"
 run_test "overridden build does not touch the default triplet directory" \
 	sh -c "! test -d '_build/$real_triplet'"
-$MAKE clean $EXTRA >/dev/null 2>&1
 rm -f .env
 $MAKE clean-all TARGET_TRIPLET="$probe_triplet" $EXTRA >/dev/null 2>&1
 run_test "TARGET_TRIPLET on the command line selects the build directory" \
 	sh -c "$MAKE app TARGET_TRIPLET='$probe_triplet' $EXTRA >/dev/null 2>&1 && test -d '_build/$probe_triplet'"
-$MAKE clean TARGET_TRIPLET="$probe_triplet" $EXTRA >/dev/null 2>&1
 $MAKE clean-all TARGET_TRIPLET="$probe_triplet" $EXTRA >/dev/null 2>&1
 
 printf "\n=== clean-all ===\n"
@@ -236,6 +231,16 @@ $MAKE $EXTRA >/dev/null 2>&1
 $MAKE clean $EXTRA >/dev/null 2>&1
 run_test "make clean-all" $MAKE clean-all $EXTRA
 run_test "build dirs removed" sh -c '! test -d _build'
+
+# clean-all on its own, with no preceding clean. It must read the existing
+# config.mk: without it, objects built from CONFIG_* gated sources (extra.c,
+# gated on CONFIG_EXTRA from defconfig) are invisible to the clean and stay
+# behind, so the next build can link stale objects from a configuration that
+# is no longer selected.
+$MAKE $EXTRA >/dev/null 2>&1
+run_test "config-gated object built" sh -c 'test -f _build/*/src/extra.o'
+run_test "clean-all alone removes config-gated objects" \
+	sh -c "$MAKE clean-all $EXTRA >/dev/null 2>&1 && ! test -d _build"
 
 printf "\n=== Results ===\n"
 printf "  %d passed, %d failed\n" "$PASS" "$FAIL"
