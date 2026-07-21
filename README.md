@@ -386,7 +386,7 @@ _out/<triplet>/bin/  executable binaries
 _out/<triplet>/lib/  shared libraries
 ```
 
-The triplet (e.g. `x86_64-linux-gnu`) comes from `$(CC) -dumpmachine`, so cross-compiled artifacts don't clobber native ones.
+The triplet (e.g. `x86_64-linux-gnu`) comes from `$(CC) -dumpmachine`, so cross-compiled artifacts don't clobber native ones. Its exact shape depends on the compiler. On the same machine gcc reports `x86_64-linux-gnu` while clang reports `x86_64-pc-linux-gnu`, so the two get separate build directories.
 
 Set `TARGET_TRIPLET` in `.env` or on the command line to override it. This is needed when two toolchains report the same triplet: a musl cross-compiler reports its glibc counterpart's triplet (`arm-linux-musleabihf-gcc` reports `arm-linux-gnueabihf`), so without an override both builds share one directory and silently reuse each other's objects.
 

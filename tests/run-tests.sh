@@ -226,6 +226,30 @@ run_test "TARGET_TRIPLET on the command line selects the build directory" \
 	sh -c "$MAKE app TARGET_TRIPLET='$probe_triplet' $EXTRA >/dev/null 2>&1 && test -d '_build/$probe_triplet'"
 $MAKE clean-all TARGET_TRIPLET="$probe_triplet" $EXTRA >/dev/null 2>&1
 
+printf "\n=== target OS from the triplet ===\n"
+# The OS does not sit at a fixed position in a triplet: gcc reports
+# x86_64-linux-gnu while clang on the same machine reports
+# x86_64-pc-linux-gnu. Reading the wrong field yields a bogus _TARGET_OS, and
+# every .Linux suffixed variable then merges into nothing. That failure is
+# silent, so pin the mapping for both shapes and for the other platforms.
+check_os() {   # $1 triplet, $2 expected _TARGET_OS
+	run_test "$1 -> $2" sh -c \
+	  "$MAKE -pq TARGET_TRIPLET='$1' $EXTRA 2>/dev/null |
+	   grep -qx '_TARGET_OS := $2'"
+}
+check_os x86_64-linux-gnu         Linux
+check_os x86_64-pc-linux-gnu      Linux
+check_os aarch64-apple-darwin23   Darwin
+check_os x86_64-w64-mingw32       Windows_NT
+check_os x86_64-pc-cygwin         Windows_NT
+check_os wasm32-unknown-emscripten Emscripten
+# Reading the database still auto-creates the config, so drop the directories
+# those probes left behind before the clean-all tests inspect the tree.
+for _t in x86_64-linux-gnu x86_64-pc-linux-gnu aarch64-apple-darwin23 \
+          x86_64-w64-mingw32 x86_64-pc-cygwin wasm32-unknown-emscripten; do
+	$MAKE clean-all TARGET_TRIPLET="$_t" $EXTRA >/dev/null 2>&1
+done
+
 printf "\n=== clean-all ===\n"
 $MAKE $EXTRA >/dev/null 2>&1
 $MAKE clean $EXTRA >/dev/null 2>&1
